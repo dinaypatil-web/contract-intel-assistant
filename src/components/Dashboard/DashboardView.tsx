@@ -228,63 +228,82 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', flex: 1 }}>
-            {alerts.slice(0, 3).map(alert => {
-              const isUrgent = alert.daysRemaining <= 4;
-              return (
-                <div 
-                  key={alert.id}
-                  style={{
-                    padding: '16px 18px',
-                    borderRadius: 'var(--radius-md)',
-                    background: 'var(--bg-surface)',
-                    border: `1px solid ${alert.severity === 'Critical' ? 'var(--status-critical-border)' : 'var(--border-subtle)'}`,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '10px',
-                    boxShadow: 'var(--shadow-inner)'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span className={`badge ${alert.severity === 'Critical' ? 'badge-critical' : 'badge-warning'} ${isUrgent ? 'badge-critical-pulse' : ''}`}>
-                        {alert.severity}
-                      </span>
-                      <span className="citation-pill">{alert.clauseRef}</span>
-                    </div>
-                    <div style={{
-                      fontFamily: 'var(--font-display)',
-                      fontSize: '0.85rem',
-                      fontWeight: 800,
-                      color: isUrgent ? 'var(--status-critical)' : 'var(--status-warning)'
-                    }}>
-                      {alert.daysRemaining === 0 ? 'DUE TODAY' : `${alert.daysRemaining} Days Left`}
-                    </div>
-                  </div>
-
-                  <div style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.4 }}>
-                    {alert.title}
-                  </div>
-
-                  <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                    {alert.recommendedAction}
-                  </div>
-
-                  {/* Progress bar for time-bar */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '2px' }}>
-                    <div style={{ flex: 1, height: '4px', background: 'rgba(255, 255, 255, 0.08)', borderRadius: 'var(--radius-full)', overflow: 'hidden' }}>
-                      <div style={{
-                        width: `${Math.max(10, Math.min(100, ((alert.timeBarDays - alert.daysRemaining) / alert.timeBarDays) * 100))}%`,
-                        height: '100%',
-                        background: isUrgent ? 'var(--status-critical)' : 'var(--status-warning)'
-                      }} />
-                    </div>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                      Deadline: {alert.deadlineDate}
-                    </span>
-                  </div>
+            {alerts.length === 0 ? (
+              <div style={{
+                padding: '40px 20px',
+                textAlign: 'center',
+                background: 'var(--bg-surface)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px dashed var(--border-subtle)',
+                color: 'var(--text-muted)'
+              }}>
+                <CheckCircle2 size={36} color="var(--status-success)" style={{ margin: '0 auto 12px', opacity: 0.9 }} />
+                <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>
+                  No Critical Time-Bars or Pending Notices
                 </div>
-              );
-            })}
+                <div style={{ fontSize: '0.8rem', maxWidth: '360px', margin: '0 auto', lineHeight: 1.5 }}>
+                  All contractual notice windows under Sub-Clause 20.2 are compliant and clear.
+                </div>
+              </div>
+            ) : (
+              alerts.slice(0, 3).map(alert => {
+                const isUrgent = alert.daysRemaining <= 4;
+                return (
+                  <div 
+                    key={alert.id}
+                    style={{
+                      padding: '16px 18px',
+                      borderRadius: 'var(--radius-md)',
+                      background: 'var(--bg-surface)',
+                      border: `1px solid ${alert.severity === 'Critical' ? 'var(--status-critical-border)' : 'var(--border-subtle)'}`,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px',
+                      boxShadow: 'var(--shadow-inner)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span className={`badge ${alert.severity === 'Critical' ? 'badge-critical' : 'badge-warning'} ${isUrgent ? 'badge-critical-pulse' : ''}`}>
+                          {alert.severity}
+                        </span>
+                        <span className="citation-pill">{alert.clauseRef}</span>
+                      </div>
+                      <div style={{
+                        fontFamily: 'var(--font-display)',
+                        fontSize: '0.85rem',
+                        fontWeight: 800,
+                        color: isUrgent ? 'var(--status-critical)' : 'var(--status-warning)'
+                      }}>
+                        {alert.daysRemaining === 0 ? 'DUE TODAY' : `${alert.daysRemaining} Days Left`}
+                      </div>
+                    </div>
+
+                    <div style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.4 }}>
+                      {alert.title}
+                    </div>
+
+                    <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                      {alert.recommendedAction}
+                    </div>
+
+                    {/* Progress bar for time-bar */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '2px' }}>
+                      <div style={{ flex: 1, height: '4px', background: 'rgba(255, 255, 255, 0.08)', borderRadius: 'var(--radius-full)', overflow: 'hidden' }}>
+                        <div style={{
+                          width: `${Math.max(10, Math.min(100, ((alert.timeBarDays - alert.daysRemaining) / alert.timeBarDays) * 100))}%`,
+                          height: '100%',
+                          background: isUrgent ? 'var(--status-critical)' : 'var(--status-warning)'
+                        }} />
+                      </div>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                        Deadline: {alert.deadlineDate}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
 
           <div style={{
@@ -449,12 +468,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-blue)', fontWeight: 700, fontSize: '0.92rem' }}>
                 <FileText size={18} />
-                <span>Review PMC Acceleration Letter (LTR-1482)</span>
+                <span>Review & Rebut Incoming Letter</span>
               </div>
               <ArrowUpRight size={16} color="var(--accent-blue)" />
             </div>
             <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '8px', lineHeight: 1.5 }}>
-              PMC demands 24/7 working at Contractor cost. Run 7-step analysis, DO NOT SAY guardrails, and generate contractual rebuttal.
+              Analyze incoming instructions, examine underlying delay notices, enforce DO NOT SAY legal guardrails, and generate contractual replies.
             </p>
           </div>
 
@@ -469,19 +488,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             }}
             className="glass-panel"
             onClick={() => {
-              onSetChatPrompt("PMC has instructed us to accelerate the work due to delay. Can they recover the additional manpower and crane cost from the Contractor?");
+              onSetChatPrompt("What are our contractual rights and notice obligations regarding unforeseen physical conditions and engineer instructions?");
               onNavigate('chat');
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--status-warning)', fontWeight: 700, fontSize: '0.92rem' }}>
                 <Zap size={18} />
-                <span>Query: Acceleration Cost Recovery</span>
+                <span>Multi-Clause Contract AI Query</span>
               </div>
               <ArrowUpRight size={16} color="var(--status-warning)" />
             </div>
             <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '8px', lineHeight: 1.5 }}>
-              Execute multi-clause reasoning (PC 8.6, PC 8.4, PC 13.3) under Contractor Defence & PMC perspective modes with exact citations.
+              Query rights, obligations, and notice time-bars under Contractor Defence, PMC perspective, or dispute arbitration preparation modes.
             </p>
           </div>
 
@@ -500,12 +519,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-indigo)', fontWeight: 700, fontSize: '0.92rem' }}>
                 <Scale size={18} />
-                <span>Contractual Conflict Detector</span>
+                <span>Contractual Precedence Detector</span>
               </div>
               <ArrowUpRight size={16} color="var(--accent-indigo)" />
             </div>
             <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '8px', lineHeight: 1.5 }}>
-              Evaluate Particular Conditions vs General Conditions (10% vs 15% LD cap) and Specifications vs Drawings rebar steel grades.
+              Automatically detect ambiguities or conflicts across contract tiers (Agreement, Particular Conditions, General Conditions, Specs, BOQ).
             </p>
           </div>
         </div>

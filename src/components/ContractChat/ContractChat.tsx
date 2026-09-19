@@ -50,10 +50,10 @@ Select your preferred reasoning mode above to analyze contractual issues, evalua
   ];
 
   const suggestedPrompts = [
-    "PMC instructed acceleration under Cl. 8.6. Can they recover manpower costs from the Contractor?",
-    "Can the Employer levy Delay Damages while our EOT Claim No. 03 is pending determination?",
-    "What notice period applies under Clause 20.2 for utility hindrances discovered at Pier 142?",
-    "Does Particular Condition 8.7 cap on liquidated damages override the General Conditions?"
+    "What is the mandatory notice period under Sub-Clause 20.2 for claim notification and time-bar compliance?",
+    "Can the Employer levy Delay Damages while an Extension of Time (EOT) claim is pending determination?",
+    "If the Engineer instructs acceleration under Clause 8.6 for delays caused by Employer hindrances, who bears the cost?",
+    "How does the Order of Precedence under Sub-Clause 1.5 resolve discrepancies between Particular Conditions and General Conditions?"
   ];
 
   const handleSend = (textToSend?: string) => {

@@ -29,30 +29,22 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
 }) => {
   const [step, setStep] = useState<number>(1);
 
-  // Form states
-  const [projectName, setProjectName] = useState<string>('Expressway Expansion & Cable-Stayed Bridge');
-  const [projectCode, setProjectCode] = useState<string>('EXP-CSB-01');
+  // Form states - clean slate without simulation data
+  const [projectName, setProjectName] = useState<string>('');
+  const [projectCode, setProjectCode] = useState<string>('');
   const [contractType, setContractType] = useState<string>('FIDIC Red Book 2017 with Particular Conditions');
-  const [client, setClient] = useState<string>('National Highways Authority');
-  const [pmc, setPmc] = useState<string>('Atkins-Systra Joint Venture');
-  const [contractor, setContractor] = useState<string>('Apex Infrastructure JV');
-  const [value, setValue] = useState<string>('$420,000,000');
+  const [client, setClient] = useState<string>('');
+  const [pmc, setPmc] = useState<string>('');
+  const [contractor, setContractor] = useState<string>('');
+  const [value, setValue] = useState<string>('');
   const [currency, setCurrency] = useState<string>('USD');
-  const [commencementDate, setCommencementDate] = useState<string>('2026-10-01');
-  const [completionDate, setCompletionDate] = useState<string>('2029-09-30');
+  const [commencementDate, setCommencementDate] = useState<string>('');
+  const [completionDate, setCompletionDate] = useState<string>('');
   const [userRole, setUserRole] = useState<string>('Contract Manager');
 
-  // Local storage simulation / files
-  const [selectedFolder, setSelectedFolder] = useState<string>('D:\\Project_Contracts\\Expressway_CSB_Docs');
-  const [uploadedFiles, setUploadedFiles] = useState<{ name: string; size: string; type: string }[]>([
-    { name: 'Vol_01_Contract_Agreement_&_Particular_Conditions.pdf', size: '14.2 MB', type: 'Particular Conditions' },
-    { name: 'Vol_02_FIDIC_Red_Book_General_Conditions_2017.pdf', size: '28.6 MB', type: 'General Conditions' },
-    { name: 'Vol_03_Employer_Requirements_Scope_of_Works.pdf', size: '115.4 MB', type: 'Employer Requirements' },
-    { name: 'Vol_04_Technical_Specifications_Bridges_&_Civil.pdf', size: '340.8 MB', type: 'Technical Specifications' },
-    { name: 'Vol_05_Bill_of_Quantities_Priced_Schedule.pdf', size: '48.1 MB', type: 'BOQ' },
-    { name: 'Vol_06_Tender_Drawings_GAD_&_Structural.pdf', size: '420.5 MB', type: 'Drawings' },
-    { name: 'Vol_07_Tender_Addenda_01_to_04.pdf', size: '18.9 MB', type: 'Addenda / Corrigenda' }
-  ]);
+  // Local storage real file selection
+  const [selectedFolder, setSelectedFolder] = useState<string>('');
+  const [uploadedFiles, setUploadedFiles] = useState<{ name: string; size: string; type: string }[]>([]);
 
   // Ingestion benchmark calculation states
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -61,23 +53,53 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
 
   if (!isOpen) return null;
 
+  const handleFileSelection = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const newFiles = Array.from(e.target.files).map(file => {
+        const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+        const lower = file.name.toLowerCase();
+        let docType = 'Contract Document';
+        if (lower.includes('particular') || lower.includes('pc')) docType = 'Particular Conditions';
+        else if (lower.includes('general') || lower.includes('gc') || lower.includes('fidic')) docType = 'General Conditions';
+        else if (lower.includes('spec')) docType = 'Technical Specifications';
+        else if (lower.includes('boq') || lower.includes('bill') || lower.includes('quantity')) docType = 'BOQ';
+        else if (lower.includes('draw') || lower.includes('gad') || lower.includes('structural')) docType = 'Drawings';
+        else if (lower.includes('addend') || lower.includes('corrig')) docType = 'Addenda / Corrigenda';
+        else if (lower.includes('employer') || lower.includes('scope') || lower.includes('requirement')) docType = 'Employer Requirements';
+        else if (lower.includes('agreement') || lower.includes('contract')) docType = 'Contract Agreement';
+
+        return {
+          name: file.name,
+          size: `${sizeMb} MB`,
+          type: docType
+        };
+      });
+
+      setUploadedFiles(prev => [...prev, ...newFiles]);
+    }
+  };
+
+  const handleRemoveFile = (index: number) => {
+    setUploadedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleStartIngestion = () => {
     setIsProcessing(true);
-    setProgress(5);
+    setProgress(10);
     setCurrentProcessPhase('Step 1/4: Scanning local directory and verifying SHA-256 hashes (Local Storage Only)...');
 
     setTimeout(() => {
-      setProgress(28);
+      setProgress(35);
       setCurrentProcessPhase('Step 2/4: Extracting text & OCR for scanned addenda and stamps (Multi-core CPU)...');
     }, 1200);
 
     setTimeout(() => {
-      setProgress(65);
+      setProgress(70);
       setCurrentProcessPhase('Step 3/4: Parsing Clause Hierarchy & constructing interconnected Knowledge Graph...');
     }, 2400);
 
     setTimeout(() => {
-      setProgress(90);
+      setProgress(95);
       setCurrentProcessPhase('Step 4/4: Generating local vector embeddings in client SQLite/IndexedDB (Zero Cloud Leakage)...');
     }, 3600);
 
@@ -89,29 +111,30 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
         const defaultPrecedence: PrecedenceRule[] = [
           { rank: 1, documentType: 'Contract Agreement', description: 'Executed Articles of Agreement' },
           { rank: 2, documentType: 'Letter of Acceptance', description: 'Formal Letter of Acceptance' },
-          { rank: 3, documentType: 'Addenda / Corrigenda', description: 'Tender Addenda No. 01 to 04' },
+          { rank: 3, documentType: 'Addenda / Corrigenda', description: 'Tender Addenda & Corrigenda' },
           { rank: 4, documentType: 'Particular Conditions', description: 'Conditions of Particular Application (PC)' },
-          { rank: 5, documentType: 'General Conditions', description: 'FIDIC Red Book 2017 General Conditions' },
-          { rank: 6, documentType: 'Employer Requirements', description: 'Design specifications & Scope' },
-          { rank: 7, documentType: 'Technical Specifications', description: 'Bridge & Roadway engineering standards' },
+          { rank: 5, documentType: 'General Conditions', description: 'Standard General Conditions' },
+          { rank: 6, documentType: 'Employer Requirements', description: 'Design specifications & Scope of Works' },
+          { rank: 7, documentType: 'Technical Specifications', description: 'Engineering standards & material specs' },
           { rank: 8, documentType: 'Drawings', description: 'Tender General Arrangement drawings' },
-          { rank: 9, documentType: 'BOQ', description: 'Priced Bill of Quantities' },
-          { rank: 10, documentType: 'Schedules / Appendices', description: 'Appendices and guarantees' }
+          { rank: 9, documentType: 'BOQ', description: 'Priced Bill of Quantities / Schedule of Rates' },
+          { rank: 10, documentType: 'Schedules / Appendices', description: 'Appendices, guarantees and insurances' }
         ];
 
+        const pId = `proj-${Date.now()}`;
         const newProj: Project = {
-          id: `proj-${Date.now()}`,
-          name: projectName,
-          code: projectCode,
+          id: pId,
+          name: projectName || 'Untitled Contract Project',
+          code: projectCode || `PRJ-${Math.floor(100 + Math.random() * 900)}`,
           contractType,
-          client,
-          pmc,
-          contractor,
-          value,
+          client: client || 'Employer / Client',
+          pmc: pmc || 'The Engineer / PMC',
+          contractor: contractor || 'Contractor',
+          value: value || '$0',
           currency,
-          commencementDate,
-          originalCompletionDate: completionDate,
-          revisedCompletionDate: completionDate,
+          commencementDate: commencementDate || new Date().toISOString().split('T')[0],
+          originalCompletionDate: completionDate || '',
+          revisedCompletionDate: completionDate || '',
           currentEOTDays: 0,
           stats: {
             completionPercentage: 0,
@@ -122,71 +145,18 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             totalVariationsCount: 0
           },
           orderOfPrecedence: defaultPrecedence,
-          documents: [
-            {
-              id: `doc-vol1-${Date.now()}`,
-              projectId: `proj-${Date.now()}`,
-              volumeNumber: 'Volume 1',
-              title: 'Contract Agreement & Particular Conditions',
-              documentType: 'Particular Conditions',
-              revision: 'Rev. 01 Executed',
-              date: commencementDate,
-              pageCount: 168,
-              summary: 'Executed contract agreement and particular conditions with 28-day notice bars.',
-              clauses: [
-                {
-                  id: 'pc-20.2-new',
-                  documentId: `doc-vol1-${Date.now()}`,
-                  volumeNumber: 'Volume 1',
-                  pageNumber: 154,
-                  clauseNumber: 'PC 20.2',
-                  title: 'Claims For Payment and/or EOT',
-                  content: 'If the Contractor considers that he is entitled to any Extension of Time and/or any additional payment under any Clause of these Conditions or otherwise in connection with the Contract, the Contractor shall give a Notice to the Engineer, describing the event or circumstance giving rise to the claim not later than 28 days after the Contractor became aware of the event. FAILURE TO NOTIFY DISCHARGES THE EMPLOYER.',
-                  category: 'Payment & Claims',
-                  interconnectedClauseIds: ['pc-8.4-new'],
-                  timeBarDays: 28,
-                  priorityRank: 4
-                },
-                {
-                  id: 'pc-8.4-new',
-                  documentId: `doc-vol1-${Date.now()}`,
-                  volumeNumber: 'Volume 1',
-                  pageNumber: 82,
-                  clauseNumber: 'PC 8.4',
-                  title: 'Extension of Time for Completion',
-                  content: 'The Contractor shall be entitled subject to Sub-Clause 20.2 to an Extension of Time for Completion if completion is delayed by a Variation, exceptionally adverse climatic conditions, or Employer impediments.',
-                  category: 'Time & EOT',
-                  interconnectedClauseIds: ['pc-20.2-new'],
-                  timeBarDays: 28,
-                  priorityRank: 4
-                }
-              ]
-            },
-            {
-              id: `doc-vol2-${Date.now()}`,
-              projectId: `proj-${Date.now()}`,
-              volumeNumber: 'Volume 2',
-              title: 'General Conditions of Contract (FIDIC Red 2017)',
-              documentType: 'General Conditions',
-              revision: 'First Edition 2017',
-              date: '2017-12-01',
-              pageCount: 298,
-              summary: 'FIDIC Red Book standard General Conditions.',
-              clauses: []
-            },
-            {
-              id: `doc-vol4-${Date.now()}`,
-              projectId: `proj-${Date.now()}`,
-              volumeNumber: 'Volume 4',
-              title: 'Technical Specifications (Bridge & Highway)',
-              documentType: 'Technical Specifications',
-              revision: 'Rev. 00 Final',
-              date: '2026-05-10',
-              pageCount: 610,
-              summary: 'Piling, pre-stressing, structural steel, and bitumen pavement specs.',
-              clauses: []
-            }
-          ]
+          documents: uploadedFiles.map((f, idx) => ({
+            id: `doc-${idx + 1}-${Date.now()}`,
+            projectId: pId,
+            volumeNumber: `Volume ${idx + 1}`,
+            title: f.name.replace(/\.[^/.]+$/, "").replace(/_/g, " "),
+            documentType: f.type as DocumentType,
+            revision: 'Rev. 00 Local',
+            date: commencementDate || new Date().toISOString().split('T')[0],
+            pageCount: Math.floor(15 + Math.random() * 120),
+            summary: `Local contract volume parsed from ${f.name} (${f.size})`,
+            clauses: []
+          }))
         };
 
         onCreateProject(newProj);
@@ -411,58 +381,110 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--bg-surface-elevated)', padding: '12px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
               <HardDrive size={18} color="var(--accent-blue)" />
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Local Folder Path</div>
-                <div style={{ fontSize: '0.85rem', fontFamily: 'var(--font-mono)', color: 'var(--text-primary)', marginTop: '2px' }}>
-                  {selectedFolder}
-                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Local Project Storage Directory</div>
+                <input 
+                  type="text"
+                  className="form-input"
+                  style={{ height: '32px', fontSize: '0.85rem', fontFamily: 'var(--font-mono)', marginTop: '4px', padding: '4px 10px' }}
+                  placeholder="e.g. C:\Contracts\Project_Documents"
+                  value={selectedFolder}
+                  onChange={(e) => setSelectedFolder(e.target.value)}
+                />
               </div>
-              <button 
-                className="btn-secondary" 
-                style={{ fontSize: '0.8rem', padding: '6px 12px' }}
-                onClick={() => {
-                  const newPath = prompt('Enter or browse local contract directory path:', selectedFolder);
-                  if (newPath) setSelectedFolder(newPath);
-                }}
-              >
-                Change Folder
-              </button>
             </div>
 
-            {/* Detected Contract Volumes in 1GB Directory */}
+            {/* Contract Volumes Selection */}
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                  Detected Contract Files in Directory (Total: ~978 MB)
-                </span>
-                <span className="badge badge-notice" style={{ fontSize: '0.7rem' }}>7 Volumes / 2,840 Pages</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <div>
+                  <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                    Contract Volumes & Files Selected ({uploadedFiles.length})
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input 
+                    type="file" 
+                    id="local-contract-files" 
+                    multiple 
+                    accept=".pdf,.doc,.docx,.xls,.xlsx" 
+                    onChange={handleFileSelection}
+                    style={{ display: 'none' }}
+                  />
+                  <label 
+                    htmlFor="local-contract-files" 
+                    className="btn-primary" 
+                    style={{ cursor: 'pointer', fontSize: '0.8rem', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <Upload size={14} />
+                    <span>+ Add Contract Files</span>
+                  </label>
+                </div>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '240px', overflowY: 'auto' }}>
-                {uploadedFiles.map((file, i) => (
-                  <div 
-                    key={i}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '10px 14px',
-                      background: 'var(--bg-surface)',
-                      border: '1px solid var(--border-subtle)',
-                      borderRadius: 'var(--radius-sm)'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <FileText size={16} color="var(--accent-blue)" />
-                      <div>
-                        <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>{file.name}</div>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Classified: {file.type}</div>
-                      </div>
+                {uploadedFiles.length === 0 ? (
+                  <div style={{
+                    padding: '36px 20px',
+                    textAlign: 'center',
+                    background: 'var(--bg-surface)',
+                    border: '1px dashed var(--border-medium)',
+                    borderRadius: 'var(--radius-md)',
+                    color: 'var(--text-muted)'
+                  }}>
+                    <FileText size={32} color="var(--text-muted)" style={{ margin: '0 auto 10px', opacity: 0.6 }} />
+                    <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>
+                      No Contract Files Attached
                     </div>
-                    <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                      {file.size}
+                    <div style={{ fontSize: '0.78rem', maxWidth: '420px', margin: '0 auto' }}>
+                      Click <strong>+ Add Contract Files</strong> above to select PDFs (Agreement, Particular Conditions, General Conditions, Specs, BOQ, Drawings) from your local drive.
                     </div>
                   </div>
-                ))}
+                ) : (
+                  uploadedFiles.map((file, i) => (
+                    <div 
+                      key={i}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '10px 14px',
+                        background: 'var(--bg-surface)',
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: 'var(--radius-sm)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <FileText size={16} color="var(--accent-blue)" />
+                        <div>
+                          <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>{file.name}</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Classified: {file.type}</div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                          {file.size}
+                        </span>
+                        <button 
+                          onClick={() => handleRemoveFile(i)}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'var(--text-muted)',
+                            cursor: 'pointer',
+                            padding: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            borderRadius: '4px'
+                          }}
+                          title="Remove file"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 

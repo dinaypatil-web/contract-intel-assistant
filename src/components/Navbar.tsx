@@ -12,7 +12,7 @@ import { Project } from '../types/contract';
 
 interface NavbarProps {
   projects: Project[];
-  activeProject: Project;
+  activeProject?: Project | null;
   onSelectProject: (proj: Project) => void;
   isDarkMode: boolean;
   onToggleTheme: () => void;
@@ -56,17 +56,21 @@ export const Navbar: React.FC<NavbarProps> = ({
           <ShieldCheck size={16} color="var(--accent-blue)" />
           <select 
             className="project-select"
-            value={activeProject.id}
+            value={activeProject?.id || ''}
             onChange={(e) => {
               const selected = projects.find(p => p.id === e.target.value);
               if (selected) onSelectProject(selected);
             }}
           >
-            {projects.map(p => (
-              <option key={p.id} value={p.id}>
-                {p.code} - {p.name}
-              </option>
-            ))}
+            {projects.length === 0 ? (
+              <option value="">No Active Project</option>
+            ) : (
+              projects.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.code} - {p.name}
+                </option>
+              ))
+            )}
           </select>
           <ChevronDown size={14} color="var(--text-muted)" />
         </div>

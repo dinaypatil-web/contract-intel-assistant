@@ -27,7 +27,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   const [selectedReportType, setSelectedReportType] = useState<string>('letter-review');
 
   const reportTypes = [
-    { id: 'letter-review', title: 'Incoming Letter & Response Brief (LTR-1482)' },
+    { id: 'letter-review', title: 'Incoming Correspondence Executive Brief' },
     { id: 'risk-register', title: 'Contractual Risk & Time-Bar Register' },
     { id: 'claims-status', title: 'EOT & Variations Commercial Position Brief' },
     { id: 'hierarchy-report', title: 'Contract Order of Precedence & Volume Audit' }
@@ -103,140 +103,175 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         </div>
 
         {/* Selected Report Content */}
-        {selectedReportType === 'letter-review' && letters[0] && (
-          <div>
-            <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#0f172a', marginBottom: '12px' }}>
-              1. EXECUTIVE SUMMARY: PMC ACCELERATION DIRECTIVE (LETTER LTR-1482)
-            </h3>
-            <p style={{ fontSize: '0.9rem', lineHeight: 1.6, color: '#334155', marginBottom: '16px' }}>
-              On 12 August 2026, the PMC (Egis-Systra-Ayesa Consortium) issued Letter Ref. <strong>{letters[0].refNumber}</strong> alleging a 48-calendar-day delay in Pier Cap erections between Pier P102 and P140. The PMC has directed continuous 24/7 working hours and mobilization of 2 additional 150 MT cranes at the Contractor&apos;s sole expense under Sub-Clause 8.6, threatening delay damages from 15 November 2026.
-            </p>
+        {selectedReportType === 'letter-review' && (
+          letters.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#64748b' }}>
+              <FileText size={40} color="#0284c7" style={{ margin: '0 auto 12px', opacity: 0.6 }} />
+              <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#0f172a', marginBottom: '6px' }}>
+                No Correspondence Analyzed
+              </div>
+              <div style={{ fontSize: '0.85rem', maxWidth: '440px', margin: '0 auto' }}>
+                Open the Letter Review Studio to enter or analyze incoming correspondence and generate an executive rebuttal brief.
+              </div>
+            </div>
+          ) : (
+            <div>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#0f172a', marginBottom: '12px' }}>
+                1. EXECUTIVE SUMMARY: {letters[0].subject}
+              </h3>
+              <p style={{ fontSize: '0.9rem', lineHeight: 1.6, color: '#334155', marginBottom: '16px' }}>
+                On {letters[0].date}, {letters[0].sender} issued Letter Ref. <strong>{letters[0].refNumber}</strong> regarding: {letters[0].subject}. {letters[0].riskScoreExplanation}
+              </p>
 
-            <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a', marginTop: '20px', marginBottom: '10px' }}>
-              2. CONTRACTUAL CROSS-CHECK & EVALUATION
-            </h4>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', marginBottom: '20px' }}>
-              <thead>
-                <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #cbd5e1' }}>
-                  <th style={{ padding: '8px 10px', textAlign: 'left' }}>PMC Statement</th>
-                  <th style={{ padding: '8px 10px', textAlign: 'left' }}>Governing Clause</th>
-                  <th style={{ padding: '8px 10px', textAlign: 'left' }}>Legal Status</th>
-                  <th style={{ padding: '8px 10px', textAlign: 'left' }}>Strategic Stance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {letters[0].crossCheck.map(c => (
-                  <tr key={c.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                    <td style={{ padding: '10px', fontWeight: 600 }}>{c.statement}</td>
-                    <td style={{ padding: '10px', color: '#0284c7' }}>{c.clausesCited.map(cc => cc.clauseNumber).join(', ')}</td>
-                    <td style={{ padding: '10px', color: c.status === 'Contractually Supported' ? '#16a34a' : '#dc2626', fontWeight: 700 }}>
-                      {c.status}
-                    </td>
-                    <td style={{ padding: '10px', color: '#475569' }}>{c.analysis.slice(0, 110)}...</td>
+              <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a', marginTop: '20px', marginBottom: '10px' }}>
+                2. CONTRACTUAL CROSS-CHECK & EVALUATION
+              </h4>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', marginBottom: '20px' }}>
+                <thead>
+                  <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #cbd5e1' }}>
+                    <th style={{ padding: '8px 10px', textAlign: 'left' }}>Opposing Assertion</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'left' }}>Governing Clause</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'left' }}>Legal Status</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'left' }}>Strategic Stance</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {letters[0].crossCheck.map(c => (
+                    <tr key={c.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                      <td style={{ padding: '10px', fontWeight: 600 }}>{c.statement}</td>
+                      <td style={{ padding: '10px', color: '#0284c7' }}>{c.clausesCited.map(cc => cc.clauseNumber).join(', ')}</td>
+                      <td style={{ padding: '10px', color: c.status === 'Contractually Supported' ? '#16a34a' : '#dc2626', fontWeight: 700 }}>
+                        {c.status}
+                      </td>
+                      <td style={{ padding: '10px', color: '#475569' }}>{c.analysis.slice(0, 110)}...</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
 
-            <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a', marginTop: '20px', marginBottom: '8px' }}>
-              3. RECOMMENDED COMMERCIAL DEFENSE STRATEGY
-            </h4>
-            <ol style={{ paddingLeft: '24px', fontSize: '0.88rem', lineHeight: 1.7, color: '#334155' }}>
-              <li><strong>Reject Clause 8.6 Applicability:</strong> Formally rebut the PMC&apos;s unilateral invocation of Clause 8.6, highlighting the express proviso that Clause 8.6 excludes delays arising from Clause 8.4 causes.</li>
-              <li><strong>Establish Constructive Acceleration:</strong> Directing accelerated progress while refusing to determine pending Extension of Time Claim No. 03 constitutes compensable constructive acceleration under Sub-Clause 13.3.</li>
-              <li><strong>Submit Dual Schedule:</strong> Provide (A) Impacted Critical Path EOT Schedule (+54 days), and (B) Acceleration Feasibility Schedule conditional on Variation Order of $1,840,000.</li>
-              <li><strong>Delay Damages Defense:</strong> Delay damages cannot be lawfully levied while the Engineer remains in default of its duty to determine legitimate EOT claims under Sub-Clause 3.7.</li>
-            </ol>
-          </div>
+              <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a', marginTop: '20px', marginBottom: '8px' }}>
+                3. RECOMMENDED COMMERCIAL DEFENSE STRATEGY
+              </h4>
+              <ol style={{ paddingLeft: '24px', fontSize: '0.88rem', lineHeight: 1.7, color: '#334155' }}>
+                <li><strong>Preserve Entitlements:</strong> Issue a formal contractual reply citing the governing order of precedence under Sub-Clause 1.5.</li>
+                <li><strong>Rebut Unilateral Directives:</strong> Reject any instruction seeking to transfer employer risk or delay cost to the Contractor without variation orders.</li>
+                <li><strong>Enforce Notice Compliance:</strong> Ensure contemporary records and notices under Sub-Clause 20.2 are formally recorded and submitted.</li>
+              </ol>
+            </div>
+          )
         )}
 
         {selectedReportType === 'risk-register' && (
-          <div>
-            <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#0f172a', marginBottom: '14px' }}>
-              CONTRACTUAL RISK & TIME-BAR WATCHDOG REGISTER
-            </h3>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-              <thead>
-                <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #cbd5e1' }}>
-                  <th style={{ padding: '10px', textAlign: 'left' }}>Event / Notice Title</th>
-                  <th style={{ padding: '10px', textAlign: 'left' }}>Clause Ref</th>
-                  <th style={{ padding: '10px', textAlign: 'left' }}>Time-Bar</th>
-                  <th style={{ padding: '10px', textAlign: 'left' }}>Deadline</th>
-                  <th style={{ padding: '10px', textAlign: 'left' }}>Days Left</th>
-                  <th style={{ padding: '10px', textAlign: 'left' }}>Severity</th>
-                </tr>
-              </thead>
-              <tbody>
-                {alerts.map(a => (
-                  <tr key={a.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                    <td style={{ padding: '10px', fontWeight: 600 }}>{a.title}</td>
-                    <td style={{ padding: '10px', color: '#0284c7' }}>{a.clauseRef}</td>
-                    <td style={{ padding: '10px' }}>{a.timeBarDays} Days</td>
-                    <td style={{ padding: '10px' }}>{a.deadlineDate}</td>
-                    <td style={{ padding: '10px', fontWeight: 700, color: a.daysRemaining <= 4 ? '#dc2626' : '#d97706' }}>
-                      {a.daysRemaining}d
-                    </td>
-                    <td style={{ padding: '10px' }}>
-                      <span style={{
-                        padding: '2px 8px',
-                        borderRadius: '4px',
-                        fontSize: '0.72rem',
-                        fontWeight: 700,
-                        background: a.severity === 'Critical' ? '#fee2e2' : '#fef3c7',
-                        color: a.severity === 'Critical' ? '#dc2626' : '#d97706'
-                      }}>
-                        {a.severity}
-                      </span>
-                    </td>
+          alerts.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#64748b' }}>
+              <CheckCircle size={40} color="#16a34a" style={{ margin: '0 auto 12px', opacity: 0.8 }} />
+              <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#0f172a', marginBottom: '6px' }}>
+                No Active Risk or Time-Bar Notices
+              </div>
+              <div style={{ fontSize: '0.85rem' }}>
+                All contractual notice windows and claim time-bars are fully compliant and clear.
+              </div>
+            </div>
+          ) : (
+            <div>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#0f172a', marginBottom: '14px' }}>
+                CONTRACTUAL RISK & TIME-BAR WATCHDOG REGISTER
+              </h3>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #cbd5e1' }}>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Event / Notice Title</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Clause Ref</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Time-Bar</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Deadline</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Days Left</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Severity</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {alerts.map(a => (
+                    <tr key={a.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                      <td style={{ padding: '10px', fontWeight: 600 }}>{a.title}</td>
+                      <td style={{ padding: '10px', color: '#0284c7' }}>{a.clauseRef}</td>
+                      <td style={{ padding: '10px' }}>{a.timeBarDays} Days</td>
+                      <td style={{ padding: '10px' }}>{a.deadlineDate}</td>
+                      <td style={{ padding: '10px', fontWeight: 700, color: a.daysRemaining <= 4 ? '#dc2626' : '#d97706' }}>
+                        {a.daysRemaining}d
+                      </td>
+                      <td style={{ padding: '10px' }}>
+                        <span style={{
+                          padding: '2px 8px',
+                          borderRadius: '4px',
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          background: a.severity === 'Critical' ? '#fee2e2' : '#fef3c7',
+                          color: a.severity === 'Critical' ? '#dc2626' : '#d97706'
+                        }}>
+                          {a.severity}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         )}
 
         {selectedReportType === 'claims-status' && (
-          <div>
-            <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#0f172a', marginBottom: '14px' }}>
-              EXTENSION OF TIME (EOT) & QUANTUM CLAIMS DOSSIER
-            </h3>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-              <thead>
-                <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #cbd5e1' }}>
-                  <th style={{ padding: '10px', textAlign: 'left' }}>Claim Ref & Title</th>
-                  <th style={{ padding: '10px', textAlign: 'left' }}>Clause Basis</th>
-                  <th style={{ padding: '10px', textAlign: 'left' }}>EOT Claimed</th>
-                  <th style={{ padding: '10px', textAlign: 'left' }}>Claimed Amount</th>
-                  <th style={{ padding: '10px', textAlign: 'left' }}>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {claims.map(c => (
-                  <tr key={c.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                    <td style={{ padding: '10px' }}>
-                      <div style={{ fontWeight: 700 }}>{c.claimNumber}</div>
-                      <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{c.title}</div>
-                    </td>
-                    <td style={{ padding: '10px', color: '#0284c7' }}>{c.clauseBasis.join(', ')}</td>
-                    <td style={{ padding: '10px', fontWeight: 700 }}>+{c.eotDaysClaimed} Days</td>
-                    <td style={{ padding: '10px', fontWeight: 700, color: '#d97706' }}>{c.claimedAmount}</td>
-                    <td style={{ padding: '10px' }}>
-                      <span style={{
-                        padding: '2px 8px',
-                        borderRadius: '4px',
-                        fontSize: '0.72rem',
-                        fontWeight: 700,
-                        background: c.status === 'Approved' ? '#dcfce7' : '#fef3c7',
-                        color: c.status === 'Approved' ? '#16a34a' : '#d97706'
-                      }}>
-                        {c.status}
-                      </span>
-                    </td>
+          claims.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#64748b' }}>
+              <Building2 size={40} color="#0284c7" style={{ margin: '0 auto 12px', opacity: 0.6 }} />
+              <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#0f172a', marginBottom: '6px' }}>
+                No Claims or Variations Registered
+              </div>
+              <div style={{ fontSize: '0.85rem' }}>
+                Extension of Time (EOT) and variation claims will be summarized here once registered.
+              </div>
+            </div>
+          ) : (
+            <div>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#0f172a', marginBottom: '14px' }}>
+                EXTENSION OF TIME (EOT) & QUANTUM CLAIMS DOSSIER
+              </h3>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #cbd5e1' }}>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Claim Ref & Title</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Clause Basis</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>EOT Claimed</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Claimed Amount</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {claims.map(c => (
+                    <tr key={c.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                      <td style={{ padding: '10px' }}>
+                        <div style={{ fontWeight: 700 }}>{c.claimNumber}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{c.title}</div>
+                      </td>
+                      <td style={{ padding: '10px', color: '#0284c7' }}>{c.clauseBasis.join(', ')}</td>
+                      <td style={{ padding: '10px', fontWeight: 700 }}>+{c.eotDaysClaimed} Days</td>
+                      <td style={{ padding: '10px', fontWeight: 700, color: '#d97706' }}>{c.claimedAmount}</td>
+                      <td style={{ padding: '10px' }}>
+                        <span style={{
+                          padding: '2px 8px',
+                          borderRadius: '4px',
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          background: c.status === 'Approved' ? '#dcfce7' : '#fef3c7',
+                          color: c.status === 'Approved' ? '#16a34a' : '#d97706'
+                        }}>
+                          {c.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         )}
 
         {selectedReportType === 'hierarchy-report' && (

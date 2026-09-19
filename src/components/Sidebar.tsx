@@ -28,7 +28,7 @@ export type ActiveView =
 interface SidebarProps {
   activeView: ActiveView;
   onSelectView: (view: ActiveView) => void;
-  activeProject: Project;
+  activeProject?: Project | null;
   pendingReviewsCount: number;
   criticalNoticeCount: number;
 }
@@ -80,7 +80,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'hierarchy' as ActiveView,
           label: 'Contract Hierarchy & Graph',
           icon: Layers,
-          badge: `${activeProject.documents.length} Vols`
+          badge: activeProject ? `${activeProject.documents.length} Vols` : null
         },
         {
           id: 'chat' as ActiveView,
@@ -116,7 +116,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'claims' as ActiveView,
           label: 'Claims & Variations',
           icon: Briefcase,
-          badge: `${activeProject.stats.eotClaimedDays}d EOT`
+          badge: activeProject ? `${activeProject.stats.eotClaimedDays}d EOT` : null
         },
         {
           id: 'timeline' as ActiveView,
@@ -172,11 +172,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="project-summary-box">
           <div className="project-summary-title">Active Contract</div>
           <div className="project-summary-val" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {activeProject.name}
+            {activeProject ? activeProject.name : 'No Project Selected'}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            <span>Value: <strong style={{ color: 'var(--text-primary)' }}>{activeProject.value}</strong></span>
-            <span>EOT: <strong style={{ color: 'var(--accent-blue)' }}>+{activeProject.currentEOTDays}d</strong></span>
+            <span>Value: <strong style={{ color: 'var(--text-primary)' }}>{activeProject ? activeProject.value : '$0'}</strong></span>
+            <span>EOT: <strong style={{ color: 'var(--accent-blue)' }}>+{activeProject ? activeProject.currentEOTDays : 0}d</strong></span>
           </div>
         </div>
       </div>
