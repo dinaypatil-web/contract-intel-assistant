@@ -31,6 +31,7 @@ interface DashboardViewProps {
   onNavigate: (view: ActiveView) => void;
   onSelectLetter: (letter: IncomingLetterReview) => void;
   onSetChatPrompt: (prompt: string) => void;
+  onOpenIngestModal?: () => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -40,21 +41,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   claims,
   onNavigate,
   onSelectLetter,
-  onSetChatPrompt
+  onSetChatPrompt,
+  onOpenIngestModal
 }) => {
   const criticalAlerts = alerts.filter(a => a.severity === 'Critical');
+  const daysToCriticalTimeBar = alerts.length > 0 
+    ? Math.min(...alerts.map(a => a.daysRemaining))
+    : 28;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '26px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       {/* Executive Command Header */}
       <div className="glass-panel" style={{
-        background: 'linear-gradient(135deg, rgba(14, 21, 38, 0.95), rgba(22, 33, 58, 0.85))',
-        borderColor: 'var(--border-medium)',
-        padding: '28px 32px',
+        padding: '28px',
         position: 'relative',
-        overflow: 'hidden'
+        overflow: 'hidden',
+        borderLeft: '4px solid var(--accent-blue)'
       }}>
-        {/* Subtle decorative glow ring */}
+        {/* Background glow */}
         <div style={{
           position: 'absolute',
           right: '-40px',
@@ -102,15 +106,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            {onOpenIngestModal && (
+              <button 
+                className="btn-primary"
+                style={{ background: 'linear-gradient(135deg, #0284c7, #2563eb)' }}
+                onClick={onOpenIngestModal}
+              >
+                <FileText size={16} />
+                <span>+ Ingest Communication</span>
+              </button>
+            )}
             <button 
-              className="btn-primary"
+              className="btn-secondary"
               onClick={() => {
                 if (letters.length > 0) onSelectLetter(letters[0]);
                 onNavigate('letter-review');
               }}
             >
               <Zap size={16} />
-              <span>Launch Letter Review Studio</span>
+              <span>Review Letters ({letters.length})</span>
             </button>
             <button 
               className="btn-secondary"

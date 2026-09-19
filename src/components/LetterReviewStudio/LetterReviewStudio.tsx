@@ -21,20 +21,30 @@ import {
   Check, 
   ChevronRight,
   Download,
-  Upload
+  Upload,
+  Sparkles,
+  ChevronDown,
+  Plus
 } from 'lucide-react';
 import { generateFormalContractReply, scanForDangerousPhrases } from '../../utils/legalSafety';
+import { DraftCheckerTab } from './DraftCheckerTab';
 
 interface LetterReviewStudioProps {
   project: Project;
   letter?: IncomingLetterReview | null;
+  letters?: IncomingLetterReview[];
+  onSelectLetter?: (letter: IncomingLetterReview) => void;
   onUpdateLetter?: (updated: IncomingLetterReview) => void;
+  onOpenIngestModal?: () => void;
 }
 
 export const LetterReviewStudio: React.FC<LetterReviewStudioProps> = ({
   project,
   letter,
-  onUpdateLetter
+  letters = [],
+  onSelectLetter,
+  onUpdateLetter,
+  onOpenIngestModal
 }) => {
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [selectedTone, setSelectedTone] = useState<LetterTone>('Firm Contractual');
@@ -44,7 +54,7 @@ export const LetterReviewStudio: React.FC<LetterReviewStudioProps> = ({
   const [copied, setCopied] = useState<boolean>(false);
   const [scannerInput, setScannerInput] = useState<string>('');
   const [scanFindings, setScanFindings] = useState<ReturnType<typeof scanForDangerousPhrases>>([]);
-  const [letterViewMode, setLetterViewMode] = useState<'letterhead' | 'editor'>('letterhead');
+  const [letterViewMode, setLetterViewMode] = useState<'letterhead' | 'editor' | 'checker'>('letterhead');
 
   // Intake states when no letter is selected
   const [intakeSender, setIntakeSender] = useState<string>(project?.pmc || 'The Engineer / PMC');
@@ -305,19 +315,44 @@ export const LetterReviewStudio: React.FC<LetterReviewStudioProps> = ({
             />
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
-            <button 
-              type="button" 
-              className="btn-secondary"
-              onClick={() => {
-                setIntakeRef('PMC/2026/LTR-092');
-                setIntakeSender('Engineer & Project Management Consultant');
-                setIntakeSubject('Notice under Sub-Clause 8.6 [Rate of Progress] and Notice of Delay Damages');
-                setIntakeText('Dear Sir,\n\nA joint progress inspection conducted this week confirms execution is currently behind the approved schedule. In accordance with Sub-Clause 8.6 [Rate of Progress], the Engineer formally instructs you to mobilize additional shifts at your own cost. Failure to recover delay will attract Delay Damages under Clause 8.7.');
-              }}
-            >
-              Load Example Delay Directive
-            </button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '14px', flexWrap: 'wrap', gap: '10px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {onOpenIngestModal && (
+                <button 
+                  type="button" 
+                  className="btn-primary"
+                  style={{ background: 'linear-gradient(135deg, #0284c7, #2563eb)' }}
+                  onClick={onOpenIngestModal}
+                >
+                  <Plus size={16} />
+                  <span>Ingest Employer / PMC Directive Directly</span>
+                </button>
+              )}
+              <button 
+                type="button" 
+                className="btn-secondary"
+                onClick={() => {
+                  setIntakeRef('PMC/2026/LTR-092');
+                  setIntakeSender('Engineer & Project Management Consultant');
+                  setIntakeSubject('Notice under Sub-Clause 8.6 [Rate of Progress] and Notice of Delay Damages');
+                  setIntakeText('Dear Sir,\n\nA joint progress inspection conducted this week confirms execution is currently behind the approved schedule. In accordance with Sub-Clause 8.6 [Rate of Progress], the Engineer formally instructs you to mobilize additional shifts at your own cost. Failure to recover delay will attract Delay Damages under Clause 8.7.');
+                }}
+              >
+                Load Preset: Delay Directive
+              </button>
+              <button 
+                type="button" 
+                className="btn-secondary"
+                onClick={() => {
+                  setIntakeRef('PMC/2026/DET-08');
+                  setIntakeSender('The Engineer / PMC');
+                  setIntakeSubject("Determination: Rejection of Claim for Utility Obstructions under Sub-Clause 4.12");
+                  setIntakeText('Dear Sir,\n\nWe refer to your Notice of Claim for encountering uncharted underground utility banks. The Engineer has determined under Sub-Clause 3.7 that an experienced contractor should have foreseen such physical obstructions through comprehensive tender investigations. Your claim for variation and EOT is hereby rejected in full.');
+                }}
+              >
+                Load Preset: Claim Rejection
+              </button>
+            </div>
 
             <button 
               type="button" 
@@ -339,15 +374,49 @@ export const LetterReviewStudio: React.FC<LetterReviewStudioProps> = ({
       {/* Studio Header */}
       <div className="glass-panel" style={{ padding: '20px 24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span className="badge badge-critical">Critical Risk Communication</span>
+          <div style={{ flex: 1, minWidth: '320px' }}>
+            {letters && letters.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                <span style={{ fontSize: '0.74rem', textTransform: 'uppercase', fontWeight: 800, color: 'var(--accent-blue)', letterSpacing: '0.04em' }}>
+                  Select Communication:
+                </span>
+                <div style={{ position: 'relative', display: 'inline-block' }}>
+                  <select
+                    className="form-input"
+                    style={{ 
+                      padding: '4px 28px 4px 10px', 
+                      fontSize: '0.8rem', 
+                      background: 'var(--bg-surface-elevated)', 
+                      borderColor: 'var(--border-subtle)',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                      color: 'var(--text-primary)'
+                    }}
+                    value={letter.id}
+                    onChange={(e) => {
+                      const sel = letters.find(l => l.id === e.target.value);
+                      if (sel && onSelectLetter) onSelectLetter(sel);
+                    }}
+                  >
+                    {letters.map(l => (
+                      <option key={l.id} value={l.id}>
+                        {l.refNumber} — {l.subject.slice(0, 48)}... ({l.riskScore})
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown size={14} color="var(--text-muted)" style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <span className="badge badge-critical">{letter.riskScore} Risk Exposure</span>
               <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                 Ref: <strong style={{ color: 'var(--text-primary)' }}>{letter.refNumber}</strong>
               </span>
               <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Date: {letter.date}</span>
             </div>
-            <h2 style={{ fontSize: '1.3rem', fontWeight: 800, marginTop: '6px' }}>
+            <h2 style={{ fontSize: '1.3rem', fontWeight: 800, marginTop: '6px', color: 'var(--text-primary)' }}>
               {letter.subject}
             </h2>
             <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
@@ -355,15 +424,35 @@ export const LetterReviewStudio: React.FC<LetterReviewStudioProps> = ({
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700 }}>
-                Risk Evaluation
-              </div>
-              <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--status-critical)' }}>
-                {letter.riskScore} Exposure
-              </div>
-            </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            {onOpenIngestModal && (
+              <button 
+                className="btn-secondary" 
+                style={{ fontSize: '0.82rem', padding: '8px 14px' }}
+                onClick={onOpenIngestModal}
+                title="Ingest another incoming letter from Employer or PMC"
+              >
+                <Plus size={15} />
+                <span>Ingest Letter</span>
+              </button>
+            )}
+
+            <button
+              className="btn-primary"
+              style={{
+                fontSize: '0.82rem',
+                padding: '8px 14px',
+                background: 'linear-gradient(135deg, #0284c7, #2563eb)'
+              }}
+              onClick={() => {
+                setCurrentStep(7);
+                setLetterViewMode('checker');
+              }}
+              title="Audit draft for legal traps and contractual safeguards"
+            >
+              <Sparkles size={15} />
+              <span>🔍 Check Draft (AI Corrections)</span>
+            </button>
           </div>
         </div>
       </div>
@@ -967,7 +1056,7 @@ export const LetterReviewStudio: React.FC<LetterReviewStudioProps> = ({
                 </strong>
               </div>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <div style={{ display: 'flex', background: 'var(--bg-surface-elevated)', borderRadius: 'var(--radius-md)', padding: '3px', border: '1px solid var(--border-subtle)' }}>
+                <div style={{ display: 'flex', background: 'var(--bg-surface-elevated)', borderRadius: 'var(--radius-md)', padding: '3px', border: '1px solid var(--border-subtle)', flexWrap: 'wrap' }}>
                   <button 
                     className={`nav-action-btn ${letterViewMode === 'letterhead' ? 'active' : ''}`}
                     style={{ padding: '4px 12px', fontSize: '0.76rem', border: 'none', background: letterViewMode === 'letterhead' ? 'rgba(56, 189, 248, 0.15)' : 'transparent' }}
@@ -982,11 +1071,31 @@ export const LetterReviewStudio: React.FC<LetterReviewStudioProps> = ({
                   >
                     ✏️ Text Editor
                   </button>
+                  <button 
+                    className={`nav-action-btn ${letterViewMode === 'checker' ? 'active' : ''}`}
+                    style={{ 
+                      padding: '4px 12px', 
+                      fontSize: '0.76rem', 
+                      border: 'none', 
+                      background: letterViewMode === 'checker' ? 'rgba(56, 189, 248, 0.2)' : 'transparent',
+                      color: letterViewMode === 'checker' ? 'var(--accent-blue)' : undefined,
+                      fontWeight: 700
+                    }}
+                    onClick={() => setLetterViewMode('checker')}
+                  >
+                    🔍 Check Draft & AI Corrections
+                  </button>
                 </div>
               </div>
             </div>
 
-            {letterViewMode === 'letterhead' ? (
+            {letterViewMode === 'checker' ? (
+              <DraftCheckerTab
+                initialText={currentDraftText}
+                project={project}
+                onApplyDraft={(fortifiedText) => setCustomDraft(fortifiedText)}
+              />
+            ) : letterViewMode === 'letterhead' ? (
               <div 
                 className="letter-document-view"
                 style={{

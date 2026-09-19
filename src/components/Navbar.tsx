@@ -21,6 +21,7 @@ interface NavbarProps {
   searchQuery: string;
   onSearchChange: (q: string) => void;
   onOpenNewProjectModal: () => void;
+  onOpenIngestModal?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -33,7 +34,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNavigateToNotices,
   searchQuery,
   onSearchChange,
-  onOpenNewProjectModal
+  onOpenNewProjectModal,
+  onOpenIngestModal
 }) => {
   return (
     <header className="navbar">
@@ -76,13 +78,29 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         <button 
-          className="btn-primary" 
+          className="btn-secondary" 
           style={{ fontSize: '0.78rem', padding: '6px 12px', height: '34px' }}
           onClick={onOpenNewProjectModal}
           title="Onboard new project from local contract folder"
         >
           + New Project
         </button>
+
+        {activeProject && onOpenIngestModal && (
+          <button 
+            className="btn-primary" 
+            style={{ 
+              fontSize: '0.78rem', 
+              padding: '6px 12px', 
+              height: '34px',
+              background: 'linear-gradient(135deg, #0284c7, #2563eb)'
+            }}
+            onClick={onOpenIngestModal}
+            title="Ingest / Upload incoming communication from Employer or PMC"
+          >
+            📥 Ingest Communication
+          </button>
+        )}
       </div>
 
       <div className="navbar-right">

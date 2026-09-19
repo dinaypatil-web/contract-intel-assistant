@@ -27,6 +27,7 @@ import { ConflictDetectorView } from './components/ConflictDetector/ConflictDete
 import { DocumentComparisonView } from './components/DocumentComparison/DocumentComparisonView';
 import { ReportsView } from './components/Reports/ReportsView';
 import { NewProjectModal } from './components/ProjectWizard/NewProjectModal';
+import { IngestCommunicationModal } from './components/LetterReviewStudio/IngestCommunicationModal';
 
 export const App: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>(mockProjects);
@@ -36,6 +37,7 @@ export const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [chatPrompt, setChatPrompt] = useState<string>('');
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState<boolean>(false);
+  const [isIngestModalOpen, setIsIngestModalOpen] = useState<boolean>(false);
   const [letters, setLetters] = useState<IncomingLetterReview[]>(mockLetters);
 
   // Project-isolated data
@@ -77,6 +79,13 @@ export const App: React.FC = () => {
     setActiveLetter(newOrUpdated);
   };
 
+  const handleIngestLetter = (newLetter: IncomingLetterReview) => {
+    setLetters(prev => [newLetter, ...prev]);
+    setActiveLetter(newLetter);
+    setActiveView('letter-review');
+    setIsIngestModalOpen(false);
+  };
+
   const handleLaunchChatWithClause = (clause: ContractClause) => {
     setChatPrompt(`Analyze our contractual rights, obligations, and notice requirements under ${clause.clauseNumber} (${clause.title}) in ${clause.volumeNumber}.`);
     setActiveView('chat');
@@ -106,6 +115,7 @@ export const App: React.FC = () => {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onOpenNewProjectModal={() => setIsNewProjectModalOpen(true)}
+          onOpenIngestModal={() => setIsIngestModalOpen(true)}
         />
 
         <NewProjectModal
@@ -116,6 +126,15 @@ export const App: React.FC = () => {
             setActiveProject(newProj);
           }}
         />
+
+        {activeProject && (
+          <IngestCommunicationModal
+            isOpen={isIngestModalOpen}
+            onClose={() => setIsIngestModalOpen(false)}
+            project={activeProject}
+            onIngestLetter={handleIngestLetter}
+          />
+        )}
 
         <main className="content-viewport">
           <div className="content-container">
@@ -221,6 +240,7 @@ export const App: React.FC = () => {
                       setChatPrompt(prompt);
                       setActiveView('chat');
                     }}
+                    onOpenIngestModal={() => setIsIngestModalOpen(true)}
                   />
                 )}
 
@@ -228,7 +248,10 @@ export const App: React.FC = () => {
                   <LetterReviewStudio
                     project={activeProject}
                     letter={activeLetter}
+                    letters={projectLetters}
+                    onSelectLetter={setActiveLetter}
                     onUpdateLetter={handleUpdateLetter}
+                    onOpenIngestModal={() => setIsIngestModalOpen(true)}
                   />
                 )}
 
