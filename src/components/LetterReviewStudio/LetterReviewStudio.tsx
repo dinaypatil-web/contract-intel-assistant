@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   IncomingLetterReview, 
   LetterTone, 
@@ -24,9 +24,13 @@ import {
   Upload,
   Sparkles,
   ChevronDown,
-  Plus
+  Plus,
+  Loader2,
+  FileCheck,
+  AlertTriangle
 } from 'lucide-react';
 import { generateFormalContractReply, scanForDangerousPhrases } from '../../utils/legalSafety';
+import { extractTextFromPdf } from '../../utils/pdfParser';
 import { DraftCheckerTab } from './DraftCheckerTab';
 
 interface LetterReviewStudioProps {
@@ -62,6 +66,52 @@ export const LetterReviewStudio: React.FC<LetterReviewStudioProps> = ({
   const [intakeDate, setIntakeDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [intakeSubject, setIntakeSubject] = useState<string>('');
   const [intakeText, setIntakeText] = useState<string>('');
+  const [intakeFileName, setIntakeFileName] = useState<string>('');
+  const [isIntakeProcessingPdf, setIsIntakeProcessingPdf] = useState<boolean>(false);
+  const [intakePdfMeta, setIntakePdfMeta] = useState<{
+    pageCount: number;
+    sizeFormatted: string;
+    detectedClauses: string[];
+    isScannedOrEmpty: boolean;
+  } | null>(null);
+  const [isIntakeDragOver, setIsIntakeDragOver] = useState<boolean>(false);
+  const intakeFileInputRef = useRef<HTMLInputElement>(null);
+
+  const processIntakeFile = async (file: File) => {
+    setIntakeFileName(file.name);
+    const lowerName = file.name.toLowerCase();
+
+    if (lowerName.endsWith('.pdf') || file.type === 'application/pdf') {
+      setIsIntakeProcessingPdf(true);
+      try {
+        const result = await extractTextFromPdf(file, file.name);
+        setIntakePdfMeta({
+          pageCount: result.numPages,
+          sizeFormatted: result.fileSizeFormatted,
+          detectedClauses: result.detectedClauses,
+          isScannedOrEmpty: result.isScannedOrEmpty
+        });
+        if (result.text && result.text.trim()) {
+          setIntakeText(result.text);
+        }
+        if (result.refNumber) setIntakeRef(result.refNumber);
+        if (result.date) setIntakeDate(result.date);
+        if (result.subject) setIntakeSubject(result.subject);
+        if (result.sender) setIntakeSender(result.sender);
+      } catch (err) {
+        console.error('Failed to parse PDF in studio intake:', err);
+      } finally {
+        setIsIntakeProcessingPdf(false);
+      }
+    } else {
+      try {
+        const text = await file.text();
+        setIntakeText(text);
+      } catch (err) {
+        console.error('Failed to read file:', err);
+      }
+    }
+  };
 
   useEffect(() => {
     if (letter) {
@@ -304,8 +354,109 @@ export const LetterReviewStudio: React.FC<LetterReviewStudioProps> = ({
             />
           </div>
 
+          {/* PDF Upload & Drag-and-Drop Zone */}
+          <div
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsIntakeDragOver(true); }}
+            onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsIntakeDragOver(false); }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setIsIntakeDragOver(false);
+              if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                processIntakeFile(e.dataTransfer.files[0]);
+              }
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '14px 18px',
+              background: isIntakeDragOver ? 'rgba(56, 189, 248, 0.08)' : 'var(--bg-surface-elevated)',
+              borderRadius: 'var(--radius-md)',
+              border: isIntakeDragOver ? '2px dashed var(--accent-blue)' : intakeFileName ? '1px solid var(--status-success-border)' : '1px dashed var(--border-medium)',
+              transition: 'all 0.2s ease',
+              flexWrap: 'wrap',
+              gap: '10px'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '8px',
+                background: isIntakeProcessingPdf ? 'rgba(56, 189, 248, 0.15)' : intakeFileName ? 'rgba(16, 185, 129, 0.15)' : 'rgba(56, 189, 248, 0.1)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}>
+                {isIntakeProcessingPdf ? (
+                  <Loader2 size={18} className="spinning" color="var(--accent-blue)" />
+                ) : intakeFileName ? (
+                  <FileCheck size={18} color="var(--status-success)" />
+                ) : (
+                  <Upload size={18} color="var(--accent-blue)" />
+                )}
+              </div>
+
+              <div>
+                <div style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {isIntakeProcessingPdf ? (
+                    'Recognizing & Parsing PDF Pages...'
+                  ) : intakeFileName ? (
+                    <>
+                      <span>{intakeFileName}</span>
+                      <span className="badge badge-success" style={{ fontSize: '0.68rem', padding: '1px 6px' }}>
+                        PDF Recognized
+                      </span>
+                    </>
+                  ) : (
+                    'Attach or Drag & Drop Local Letter (PDF / Word)'
+                  )}
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                  {intakePdfMeta 
+                    ? `${intakePdfMeta.pageCount} Pages • ${intakePdfMeta.sizeFormatted} • Extracted 100% locally in browser` 
+                    : 'Select a PDF from disk or drop it here to automatically extract letter text and metadata'}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input 
+                ref={intakeFileInputRef}
+                type="file" 
+                id="studio-intake-file-picker" 
+                accept=".pdf,.doc,.docx,.txt,application/pdf" 
+                onChange={(e) => {
+                  if (e.target.files && e.target.files.length > 0) {
+                    processIntakeFile(e.target.files[0]);
+                  }
+                  if (intakeFileInputRef.current) intakeFileInputRef.current.value = '';
+                }}
+                style={{ display: 'none' }}
+              />
+              <label 
+                htmlFor="studio-intake-file-picker" 
+                className="btn-primary" 
+                style={{ cursor: 'pointer', fontSize: '0.78rem', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Upload size={14} />
+                <span>{intakeFileName ? 'Change File' : 'Browse Local Disk'}</span>
+              </label>
+            </div>
+          </div>
+
           <div className="form-group">
-            <label className="form-label">Letter Body / Content (Paste Text Here)</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <label className="form-label" style={{ margin: 0 }}>
+                Letter Body / Content {intakePdfMeta && `(Extracted from ${intakePdfMeta.pageCount} Pages)`}
+              </label>
+              {intakeText && (
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                  {intakeText.length} characters • {intakeText.split(/\s+/).filter(Boolean).length} words
+                </span>
+              )}
+            </div>
             <textarea 
               className="form-input" 
               style={{ minHeight: '220px', fontFamily: 'var(--font-mono)', fontSize: '0.85rem', lineHeight: 1.6 }}

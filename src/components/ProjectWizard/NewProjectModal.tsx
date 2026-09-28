@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Project, PrecedenceRule, DocumentType } from '../../types/contract';
 import { 
   Building2, 
@@ -13,8 +13,11 @@ import {
   FileText, 
   Layers, 
   Zap, 
-  Lock 
+  Lock,
+  Loader2,
+  FileCheck
 } from 'lucide-react';
+import { extractTextFromPdf, formatFileSize } from '../../utils/pdfParser';
 
 interface NewProjectModalProps {
   isOpen: boolean;
@@ -44,7 +47,16 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
 
   // Local storage real file selection
   const [selectedFolder, setSelectedFolder] = useState<string>('');
-  const [uploadedFiles, setUploadedFiles] = useState<{ name: string; size: string; type: string }[]>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<{ 
+    name: string; 
+    size: string; 
+    type: string; 
+    pages: number; 
+    isPdf: boolean 
+  }[]>([]);
+  const [isParsingFiles, setIsParsingFiles] = useState<boolean>(false);
+  const [isDragOverFiles, setIsDragOverFiles] = useState<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Ingestion benchmark calculation states
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -53,29 +65,66 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
 
   if (!isOpen) return null;
 
+  const processIncomingFiles = async (fileList: FileList | File[]) => {
+    const filesArray = Array.from(fileList);
+    if (filesArray.length === 0) return;
+
+    setIsParsingFiles(true);
+    try {
+      const processed = await Promise.all(
+        filesArray.map(async (file) => {
+          const sizeFormatted = formatFileSize(file.size);
+          const lower = file.name.toLowerCase();
+          const isPdf = lower.endsWith('.pdf') || file.type === 'application/pdf';
+          let docType = 'Contract Document';
+          let pages = 1;
+
+          if (isPdf) {
+            try {
+              const result = await extractTextFromPdf(file, file.name);
+              pages = result.numPages;
+              if (result.suggestedClassification && result.suggestedClassification !== 'General Communication') {
+                docType = result.suggestedClassification;
+              }
+            } catch (err) {
+              console.error('Failed to parse PDF pages:', err);
+            }
+          }
+
+          // Refine docType classification based on filename heuristics if default
+          if (docType === 'Contract Document' || docType === 'General Communication') {
+            if (lower.includes('particular') || lower.includes('pc')) docType = 'Particular Conditions';
+            else if (lower.includes('general') || lower.includes('gc') || lower.includes('fidic')) docType = 'General Conditions';
+            else if (lower.includes('spec')) docType = 'Technical Specifications';
+            else if (lower.includes('boq') || lower.includes('bill') || lower.includes('quantity')) docType = 'BOQ';
+            else if (lower.includes('draw') || lower.includes('gad') || lower.includes('structural')) docType = 'Drawings';
+            else if (lower.includes('addend') || lower.includes('corrig')) docType = 'Addenda / Corrigenda';
+            else if (lower.includes('employer') || lower.includes('scope') || lower.includes('requirement')) docType = 'Employer Requirements';
+            else if (lower.includes('agreement') || lower.includes('contract')) docType = 'Contract Agreement';
+          }
+
+          return {
+            name: file.name,
+            size: sizeFormatted,
+            type: docType,
+            pages,
+            isPdf
+          };
+        })
+      );
+
+      setUploadedFiles(prev => [...prev, ...processed]);
+    } finally {
+      setIsParsingFiles(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   const handleFileSelection = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const newFiles = Array.from(e.target.files).map(file => {
-        const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
-        const lower = file.name.toLowerCase();
-        let docType = 'Contract Document';
-        if (lower.includes('particular') || lower.includes('pc')) docType = 'Particular Conditions';
-        else if (lower.includes('general') || lower.includes('gc') || lower.includes('fidic')) docType = 'General Conditions';
-        else if (lower.includes('spec')) docType = 'Technical Specifications';
-        else if (lower.includes('boq') || lower.includes('bill') || lower.includes('quantity')) docType = 'BOQ';
-        else if (lower.includes('draw') || lower.includes('gad') || lower.includes('structural')) docType = 'Drawings';
-        else if (lower.includes('addend') || lower.includes('corrig')) docType = 'Addenda / Corrigenda';
-        else if (lower.includes('employer') || lower.includes('scope') || lower.includes('requirement')) docType = 'Employer Requirements';
-        else if (lower.includes('agreement') || lower.includes('contract')) docType = 'Contract Agreement';
-
-        return {
-          name: file.name,
-          size: `${sizeMb} MB`,
-          type: docType
-        };
-      });
-
-      setUploadedFiles(prev => [...prev, ...newFiles]);
+      processIncomingFiles(e.target.files);
     }
   };
 
@@ -153,8 +202,8 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             documentType: f.type as DocumentType,
             revision: 'Rev. 00 Local',
             date: commencementDate || new Date().toISOString().split('T')[0],
-            pageCount: Math.floor(15 + Math.random() * 120),
-            summary: `Local contract volume parsed from ${f.name} (${f.size})`,
+            pageCount: f.pages || Math.floor(15 + Math.random() * 120),
+            summary: `Local contract volume parsed from ${f.name} (${f.size}, ${f.pages} pages)`,
             clauses: []
           }))
         };
@@ -404,10 +453,11 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <input 
+                    ref={fileInputRef}
                     type="file" 
                     id="local-contract-files" 
                     multiple 
-                    accept=".pdf,.doc,.docx,.xls,.xlsx" 
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,application/pdf" 
                     onChange={handleFileSelection}
                     style={{ display: 'none' }}
                   />
@@ -422,22 +472,52 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                 </div>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '240px', overflowY: 'auto' }}>
+              {/* Parsing status bar */}
+              {isParsingFiles && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', marginBottom: '8px', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', color: 'var(--accent-blue)' }}>
+                  <Loader2 size={14} className="spinning" />
+                  <span>Parsing and extracting text layers from PDF volumes...</span>
+                </div>
+              )}
+
+              <div 
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOverFiles(true); }}
+                onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOverFiles(false); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDragOverFiles(false);
+                  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    processIncomingFiles(e.dataTransfer.files);
+                  }
+                }}
+                style={{ 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  gap: '8px', 
+                  maxHeight: '240px', 
+                  overflowY: 'auto',
+                  border: isDragOverFiles ? '2px dashed var(--accent-blue)' : '1px solid transparent',
+                  borderRadius: 'var(--radius-md)',
+                  padding: isDragOverFiles ? '6px' : '0',
+                  transition: 'all 0.2s ease'
+                }}
+              >
                 {uploadedFiles.length === 0 ? (
                   <div style={{
                     padding: '36px 20px',
                     textAlign: 'center',
-                    background: 'var(--bg-surface)',
+                    background: isDragOverFiles ? 'rgba(56, 189, 248, 0.08)' : 'var(--bg-surface)',
                     border: '1px dashed var(--border-medium)',
                     borderRadius: 'var(--radius-md)',
                     color: 'var(--text-muted)'
                   }}>
-                    <FileText size={32} color="var(--text-muted)" style={{ margin: '0 auto 10px', opacity: 0.6 }} />
+                    <FileText size={32} color={isDragOverFiles ? "var(--accent-blue)" : "var(--text-muted)"} style={{ margin: '0 auto 10px', opacity: 0.8 }} />
                     <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>
-                      No Contract Files Attached
+                      Drag & Drop Contract PDFs Here
                     </div>
                     <div style={{ fontSize: '0.78rem', maxWidth: '420px', margin: '0 auto' }}>
-                      Click <strong>+ Add Contract Files</strong> above to select PDFs (Agreement, Particular Conditions, General Conditions, Specs, BOQ, Drawings) from your local drive.
+                      Drop your local contract PDF volumes (Agreement, Particular Conditions, General Conditions, Specs, BOQ, Drawings) or click <strong>+ Add Contract Files</strong> above.
                     </div>
                   </div>
                 ) : (
@@ -455,10 +535,21 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <FileText size={16} color="var(--accent-blue)" />
+                        {file.isPdf ? (
+                          <FileCheck size={18} color="var(--status-success)" />
+                        ) : (
+                          <FileText size={18} color="var(--accent-blue)" />
+                        )}
                         <div>
-                          <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>{file.name}</div>
-                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Classified: {file.type}</div>
+                          <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span>{file.name}</span>
+                            {file.isPdf && (
+                              <span className="badge badge-neutral" style={{ fontSize: '0.68rem', padding: '1px 6px' }}>
+                                PDF • {file.pages} {file.pages === 1 ? 'Page' : 'Pages'}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Classified: <strong style={{ color: 'var(--accent-blue)' }}>{file.type}</strong></div>
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

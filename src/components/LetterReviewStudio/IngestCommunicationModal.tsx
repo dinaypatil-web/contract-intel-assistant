@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Project, IncomingLetterReview } from '../../types/contract';
 import { 
   FileText, 
@@ -9,8 +9,14 @@ import {
   Building2, 
   Calendar, 
   Sparkles,
-  ShieldAlert
+  ShieldAlert,
+  Loader2,
+  CheckCircle2,
+  FileCheck,
+  AlertTriangle,
+  RefreshCw
 } from 'lucide-react';
+import { extractTextFromPdf, formatFileSize } from '../../utils/pdfParser';
 
 interface IngestCommunicationModalProps {
   isOpen: boolean;
@@ -33,37 +39,137 @@ export const IngestCommunicationModal: React.FC<IngestCommunicationModalProps> =
   const [letterText, setLetterText] = useState<string>('');
   const [attachedFileName, setAttachedFileName] = useState<string>('');
 
+  // PDF processing states
+  const [isProcessingPdf, setIsProcessingPdf] = useState<boolean>(false);
+  const [pdfMeta, setPdfMeta] = useState<{
+    pageCount: number;
+    sizeFormatted: string;
+    detectedClauses: string[];
+    isScannedOrEmpty: boolean;
+  } | null>(null);
+  const [isDragOver, setIsDragOver] = useState<boolean>(false);
+  const [parseError, setParseError] = useState<string | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   if (!isOpen) return null;
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const file = e.target.files[0];
-      setAttachedFileName(file.name);
-      
-      // Auto-extract or fill metadata from file name
-      if (!refNumber) {
-        const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/_/g, " ");
-        setRefNumber(`PMC/${project?.code || 'PRJ'}/${cleanName.slice(0, 15).toUpperCase()}`);
-      }
-      if (!subject) {
-        setSubject(`Instruction / Communication regarding ${file.name.replace(/\.[^/.]+$/, "")}`);
-      }
+  const processFile = async (file: File) => {
+    setParseError(null);
+    setAttachedFileName(file.name);
+    const lowerName = file.name.toLowerCase();
 
-      // Read file content if text or fallback
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const content = event.target?.result as string;
-        if (content && typeof content === 'string' && content.trim().length > 20) {
-          setLetterText(content);
+    if (lowerName.endsWith('.pdf') || file.type === 'application/pdf') {
+      setIsProcessingPdf(true);
+      try {
+        const result = await extractTextFromPdf(file, file.name);
+
+        setPdfMeta({
+          pageCount: result.numPages,
+          sizeFormatted: result.fileSizeFormatted,
+          detectedClauses: result.detectedClauses,
+          isScannedOrEmpty: result.isScannedOrEmpty
+        });
+
+        if (result.text && result.text.trim()) {
+          setLetterText(result.text);
         } else {
-          setLetterText(`[Uploaded Document: ${file.name}]\n\nFormal correspondence received from ${sender} regarding ${subject || file.name}.\n\nThe Engineer hereby instructs the Contractor to comply with the directives and requirements stated in the attached communication.`);
+          setLetterText(`[Uploaded PDF: ${file.name} - ${result.numPages} Pages]\n\n(No embedded text layer detected. This appears to be a scanned document. Please paste or enter the key letter content below for contractual analysis.)`);
         }
-      };
-      reader.readAsText(file);
+
+        // Auto-populate extracted metadata if available
+        if (result.refNumber) setRefNumber(result.refNumber);
+        else if (!refNumber) {
+          const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/_/g, " ");
+          setRefNumber(`PMC/${project?.code || 'PRJ'}/${cleanName.slice(0, 15).toUpperCase()}`);
+        }
+
+        if (result.date) setDate(result.date);
+        
+        if (result.subject) setSubject(result.subject);
+        else if (!subject) {
+          setSubject(result.suggestedClassification || `Instruction regarding ${file.name.replace(/\.[^/.]+$/, "")}`);
+        }
+
+        if (result.sender) setSender(result.sender);
+        if (result.recipient) setRecipient(result.recipient);
+
+      } catch (err: any) {
+        console.error('Failed to parse PDF:', err);
+        setParseError(`Could not extract text from "${file.name}". Please ensure it is not password-protected.`);
+      } finally {
+        setIsProcessingPdf(false);
+      }
+    } else {
+      // Plain text or fallback
+      setIsProcessingPdf(true);
+      try {
+        const text = await file.text();
+        setLetterText(text);
+        setPdfMeta({
+          pageCount: 1,
+          sizeFormatted: formatFileSize(file.size),
+          detectedClauses: [],
+          isScannedOrEmpty: text.trim().length === 0
+        });
+
+        if (!refNumber) {
+          const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/_/g, " ");
+          setRefNumber(`PMC/${project?.code || 'PRJ'}/${cleanName.slice(0, 15).toUpperCase()}`);
+        }
+        if (!subject) {
+          setSubject(`Communication regarding ${file.name.replace(/\.[^/.]+$/, "")}`);
+        }
+      } catch (err) {
+        setParseError(`Failed to read file "${file.name}".`);
+      } finally {
+        setIsProcessingPdf(false);
+      }
     }
   };
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      processFile(e.target.files[0]);
+    }
+    // Reset file input so re-uploading works
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleClearAttachedFile = () => {
+    setAttachedFileName('');
+    setPdfMeta(null);
+    setParseError(null);
+  };
+
   const handleLoadSample = (sampleType: 'acceleration' | 'variation-rejection' | 'time-bar') => {
+    setAttachedFileName('');
+    setPdfMeta(null);
+    setParseError(null);
+
     if (sampleType === 'acceleration') {
       setSender(`${project?.pmc || 'PMC / Engineer Consortium'} (The Engineer)`);
       setRefNumber(`PMC/${project?.code || 'PRJ'}/2026/LTR-1482`);
@@ -139,9 +245,15 @@ Dear Sir,
     const finalText = letterText.trim() || `Ref: ${finalRef}\nDate: ${finalDate}\nFrom: ${finalSender}\nSubject: ${finalSubject}\n\n[Communication Content]`;
 
     // Determine risk and extraction
-    const isAcceleration = /accelerat|expedite|8\.6|24\/7|at (its|contractor's) own cost/i.test(finalText);
+    const isAcceleration = /accelerat|expedite|8\.6|24\/7|at (its|contractor's) own cost|rate of progress/i.test(finalText);
     const isTimeBar = /time-bar|28 days|discharg|extinguish|barr/i.test(finalText);
     const isDelayDamages = /delay damages|liquidated damages|8\.7|deduct/i.test(finalText);
+    const isVariationRejection = /reject|variation|4\.12|unforeseen|at own expense|disallow/i.test(finalText);
+
+    // Extract any clauses explicitly cited in the letter text
+    const detectedClauses = pdfMeta?.detectedClauses && pdfMeta.detectedClauses.length > 0 
+      ? pdfMeta.detectedClauses 
+      : Array.from(finalText.matchAll(/(?:Sub-Clause|Clause)\s*([0-9]{1,2}(?:\.[0-9]{1,2})*)/gi)).map(m => `Sub-Clause ${m[1]}`);
 
     const newLetter: IncomingLetterReview = {
       id: `ltr-${Date.now()}`,
@@ -156,21 +268,30 @@ Dear Sir,
         ? 'Directs unilateral acceleration under Sub-Clause 8.6 at Contractor expense while ignoring Employer hindrances and pending EOT notices.'
         : isTimeBar
         ? 'Purports to time-bar contractor entitlements under Sub-Clause 20.2.'
+        : isVariationRejection
+        ? 'Attempts to reject claim entitlements under Sub-Clause 4.12 / 13.3 without contractual justification.'
         : 'Contractual communication containing performance, scope, or commercial directives requiring fortified rebuttal.',
       originalText: finalText,
       extractedData: {
         instructions: [finalSubject],
         allegations: [
-          isAcceleration ? 'Contractor alleged to be in delay on critical path' : 'Performance requirements disputed'
+          isAcceleration ? 'Contractor alleged to be in delay on critical path' 
+          : isTimeBar ? 'Contractor alleged to have failed mandatory 28-day notice'
+          : isVariationRejection ? 'Physical obstruction alleged to have been foreseeable at tender'
+          : 'Performance requirements disputed'
         ],
         deadlines: [
-          isAcceleration ? 'Submit Revised Recovery Programme within 7 days' : 'Response required within 14 days'
+          isAcceleration ? 'Submit Revised Recovery Programme within 7 days' 
+          : isTimeBar ? 'Claims deemed extinguished immediately'
+          : 'Response required within 14 days'
         ],
-        clausesCited: [
-          isAcceleration ? 'Sub-Clause 8.6 [Rate of Progress]' : 'Sub-Clause 20.2 [Claims]'
+        clausesCited: detectedClauses.length > 0 ? detectedClauses : [
+          isAcceleration ? 'Sub-Clause 8.6 [Rate of Progress]' : isTimeBar ? 'Sub-Clause 20.2 [Claims]' : 'Sub-Clause 3.7 [Determinations]'
         ],
         financialImplications: isAcceleration 
           ? 'Risk of uncompensated overtime, equipment mobilization, and threat of delay damages.'
+          : isTimeBar
+          ? 'Total forfeiture of time and financial claims.'
           : 'Potential commercial exposure if left undefended.',
         timeImplications: 'Critical path completion date and milestone compliance under threat.',
         potentialContractualConsequences: [
@@ -183,14 +304,18 @@ Dear Sir,
           id: 'cc-1',
           statement: isAcceleration 
             ? 'Contractor instructed to accelerate works at its own risk and cost under Sub-Clause 8.6'
+            : isTimeBar
+            ? 'Employer asserts all claims extinguished due to expiration of 28-day notice rule'
             : 'Directive or assertion seeking to transfer responsibility to Contractor',
           clausesCited: [
             { 
-              clauseNumber: 'PC 8.6', 
-              title: 'Rate of Progress', 
+              clauseNumber: isAcceleration ? 'PC 8.6' : 'PC 20.2', 
+              title: isAcceleration ? 'Rate of Progress' : 'Claims For Payment and/or EOT', 
               volumeNumber: 'Volume 1', 
               pageNumber: 84, 
-              excerpt: 'Contractor shall expedite at own risk and cost only other than as a result of a cause listed in Sub-Clause 8.4.' 
+              excerpt: isAcceleration 
+                ? 'Contractor shall expedite at own risk and cost only other than as a result of a cause listed in Sub-Clause 8.4.' 
+                : 'Notice must be given within 28 days of becoming aware of the event, subject to contemporaneous records.'
             },
             {
               clauseNumber: 'PC 8.4',
@@ -201,7 +326,9 @@ Dear Sir,
             }
           ],
           status: 'Not Supported',
-          analysis: 'Particular Conditions Sub-Clause 8.6 explicitly limits uncompensated acceleration to delays solely attributable to the Contractor. Employer hindrances, site access issues, and drawing releases entitle the Contractor to Extension of Time under Clause 8.4 and compensation under Clause 13.3.'
+          analysis: isAcceleration 
+            ? 'Particular Conditions Sub-Clause 8.6 explicitly limits uncompensated acceleration to delays solely attributable to the Contractor. Employer hindrances, site access issues, and drawing releases entitle the Contractor to Extension of Time under Clause 8.4 and compensation under Clause 13.3.'
+            : 'Contemporaneous records and initial notifications protect Contractor entitlements against premature time-bar forfeiture.'
         }
       ],
       implications: {
@@ -284,8 +411,8 @@ Dear Sir,
         className="glass-panel"
         style={{
           width: '100%',
-          maxWidth: '840px',
-          maxHeight: '92vh',
+          maxWidth: '860px',
+          maxHeight: '94vh',
           overflowY: 'auto',
           background: 'var(--bg-surface)',
           border: '1px solid var(--border-medium)',
@@ -314,7 +441,7 @@ Dear Sir,
             </div>
             <div>
               <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                Ingest Letter / Communication from Employer / PMC
+                Ingest & Analyze Communication / Letter
               </h2>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                 Target Project: <strong style={{ color: 'var(--accent-blue)' }}>{project?.code} - {project?.name}</strong>
@@ -340,7 +467,7 @@ Dear Sir,
         {/* Quick Fill Presets */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', background: 'var(--bg-surface-elevated)', padding: '10px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
           <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-            Load Common PMC Directives:
+            Or Load Sample Directives:
           </div>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button 
@@ -368,6 +495,152 @@ Dear Sir,
               ⏳ 28-Day Time-Bar Notice
             </button>
           </div>
+        </div>
+
+        {/* Interactive Drag & Drop PDF Upload Zone */}
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+            padding: '16px 20px',
+            background: isDragOver ? 'rgba(56, 189, 248, 0.08)' : 'var(--bg-surface-elevated)',
+            borderRadius: 'var(--radius-md)',
+            border: isDragOver 
+              ? '2px dashed var(--accent-blue)' 
+              : attachedFileName 
+              ? '1px solid var(--status-success-border)' 
+              : '1px dashed var(--border-medium)',
+            transition: 'all 0.2s ease',
+            position: 'relative'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{
+                width: '38px',
+                height: '38px',
+                borderRadius: '8px',
+                background: isProcessingPdf 
+                  ? 'rgba(56, 189, 248, 0.15)' 
+                  : attachedFileName 
+                  ? 'rgba(16, 185, 129, 0.15)' 
+                  : 'rgba(239, 68, 68, 0.12)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}>
+                {isProcessingPdf ? (
+                  <Loader2 size={20} className="spinning" color="var(--accent-blue)" />
+                ) : attachedFileName ? (
+                  <FileCheck size={20} color="var(--status-success)" />
+                ) : (
+                  <Upload size={20} color="var(--accent-blue)" />
+                )}
+              </div>
+
+              <div>
+                <div style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {isProcessingPdf ? (
+                    'Recognizing & Parsing PDF Pages...'
+                  ) : attachedFileName ? (
+                    <>
+                      <span>{attachedFileName}</span>
+                      <span className="badge badge-success" style={{ fontSize: '0.7rem', padding: '2px 8px' }}>
+                        PDF Extracted & Recognized
+                      </span>
+                    </>
+                  ) : (
+                    'Upload or Drag & Drop PDF Letter'
+                  )}
+                </div>
+                
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  {isProcessingPdf 
+                    ? 'Extracting multi-page text layer, detecting clauses, and indexing metadata client-side...'
+                    : attachedFileName && pdfMeta
+                    ? `${pdfMeta.pageCount} Pages • ${pdfMeta.sizeFormatted} • Zero cloud leakage (100% on-device)`
+                    : 'Supports PDF (.pdf), Word (.doc, .docx), and plain text (.txt). Automatically extracts metadata and letter text.'
+                  }
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <input 
+                ref={fileInputRef}
+                type="file" 
+                id="letter-pdf-file-picker" 
+                accept=".pdf,.doc,.docx,.txt,application/pdf" 
+                onChange={handleFileUpload}
+                style={{ display: 'none' }}
+              />
+
+              {attachedFileName && (
+                <button
+                  type="button"
+                  className="nav-action-btn"
+                  onClick={handleClearAttachedFile}
+                  style={{ fontSize: '0.75rem', padding: '6px 10px', color: 'var(--text-muted)' }}
+                  title="Remove attached file"
+                >
+                  <X size={14} />
+                  <span>Remove</span>
+                </button>
+              )}
+
+              <label 
+                htmlFor="letter-pdf-file-picker" 
+                className="btn-primary" 
+                style={{ 
+                  cursor: 'pointer', 
+                  fontSize: '0.8rem', 
+                  padding: '7px 16px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <Upload size={14} />
+                <span>{attachedFileName ? 'Change PDF' : 'Browse Local Disk'}</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Detected Clauses Bar if available from PDF */}
+          {pdfMeta && pdfMeta.detectedClauses.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', paddingTop: '8px', borderTop: '1px solid var(--border-subtle)' }}>
+              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                Detected Contract Clauses:
+              </span>
+              {pdfMeta.detectedClauses.map((c, i) => (
+                <span key={i} className="citation-pill" style={{ fontSize: '0.72rem' }}>
+                  {c}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Warning banner for scanned PDF */}
+          {pdfMeta && pdfMeta.isScannedOrEmpty && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--status-warning-bg)', border: '1px solid var(--status-warning-border)', borderRadius: 'var(--radius-sm)', padding: '8px 12px', fontSize: '0.76rem', color: 'var(--status-warning)' }}>
+              <AlertTriangle size={15} />
+              <span>
+                <strong>Scanned PDF Detected:</strong> Minimal embedded text was found. Metadata was indexed, but please review or paste the letter body text below.
+              </span>
+            </div>
+          )}
+
+          {/* Error Banner */}
+          {parseError && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--status-critical-bg)', border: '1px solid var(--status-critical-border)', borderRadius: 'var(--radius-sm)', padding: '8px 12px', fontSize: '0.76rem', color: 'var(--status-critical)' }}>
+              <AlertOctagon size={15} />
+              <span>{parseError}</span>
+            </div>
+          )}
         </div>
 
         {/* Metadata Inputs */}
@@ -416,45 +689,24 @@ Dear Sir,
           />
         </div>
 
-        {/* File Upload Attachment Bar */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--bg-surface-elevated)', borderRadius: 'var(--radius-md)', border: '1px dashed var(--border-medium)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Upload size={18} color="var(--accent-blue)" />
-            <div>
-              <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                {attachedFileName ? `Attached File: ${attachedFileName}` : 'Attach PDF / Word Letter from Local Disk'}
-              </div>
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                Select local document or paste letter body text directly below
-              </div>
-            </div>
-          </div>
-
-          <input 
-            type="file" 
-            id="letter-file-picker" 
-            accept=".pdf,.doc,.docx,.txt" 
-            onChange={handleFileUpload}
-            style={{ display: 'none' }}
-          />
-          <label 
-            htmlFor="letter-file-picker" 
-            className="btn-secondary" 
-            style={{ cursor: 'pointer', fontSize: '0.78rem', padding: '6px 14px' }}
-          >
-            {attachedFileName ? 'Change File' : 'Browse Local Letter'}
-          </label>
-        </div>
-
         {/* Letter Text Content */}
         <div className="form-group">
-          <label className="form-label">Letter Body / Content</label>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <label className="form-label" style={{ margin: 0 }}>
+              Letter Body / Content {pdfMeta && `(Extracted from ${pdfMeta.pageCount} Pages)`}
+            </label>
+            {letterText && (
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                {letterText.length} characters • {letterText.split(/\s+/).filter(Boolean).length} words
+              </span>
+            )}
+          </div>
           <textarea 
             className="form-input" 
             style={{ minHeight: '220px', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', lineHeight: 1.6 }}
             value={letterText}
             onChange={(e) => setLetterText(e.target.value)}
-            placeholder="Paste the full text of the letter, notice, or site instruction received from the Employer/PMC..."
+            placeholder="Paste the full text of the letter, notice, or site instruction, or upload a PDF above..."
           />
         </div>
 
@@ -468,9 +720,19 @@ Dear Sir,
             className="btn-primary" 
             style={{ padding: '10px 24px', fontSize: '0.9rem' }}
             onClick={handleIngest}
+            disabled={isProcessingPdf}
           >
-            <Sparkles size={16} />
-            <span>Ingest & Run 7-Step Contractual Review &rarr;</span>
+            {isProcessingPdf ? (
+              <>
+                <Loader2 size={16} className="spinning" />
+                <span>Processing PDF...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles size={16} />
+                <span>Ingest & Run 7-Step Contractual Review &rarr;</span>
+              </>
+            )}
           </button>
         </div>
       </div>
