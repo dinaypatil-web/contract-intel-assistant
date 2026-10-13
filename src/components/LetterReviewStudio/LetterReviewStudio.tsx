@@ -87,7 +87,7 @@ export const LetterReviewStudio: React.FC<LetterReviewStudioProps> = ({
     if (lowerName.endsWith('.pdf') || file.type === 'application/pdf') {
       setIsIntakeProcessingPdf(true);
       try {
-        const result = await extractTextFromPdf(file, file.name);
+        const result = await extractTextFromPdf(file, file.name, undefined, { mode: 'fast' });
         setIntakePdfMeta({
           pageCount: result.numPages,
           sizeFormatted: result.fileSizeFormatted,

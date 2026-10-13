@@ -95,7 +95,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             try {
               const result = await extractTextFromPdf(file, file.name, (prog) => {
                 setParsingStatusText(`[${file.name}] ${prog.message}`);
-              });
+              }, { mode: 'fast' });
               pages = result.numPages || (result.pages ? result.pages.length : 1);
               extractedText = result.text || '';
               pageDetails = result.pages || [{ pageNumber: 1, text: extractedText }];

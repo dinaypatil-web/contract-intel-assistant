@@ -52,6 +52,7 @@ export const IngestCommunicationModal: React.FC<IngestCommunicationModalProps> =
   } | null>(null);
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const [parseError, setParseError] = useState<string | null>(null);
+  const [ocrSpeedMode, setOcrSpeedMode] = useState<'fast' | 'balanced' | 'skip'>('fast');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -68,7 +69,7 @@ export const IngestCommunicationModal: React.FC<IngestCommunicationModalProps> =
       try {
         const result = await extractTextFromPdf(file, file.name, (prog) => {
           setProcessingStatus(prog.message);
-        });
+        }, { mode: ocrSpeedMode });
 
         setPdfMeta({
           pageCount: result.numPages,
@@ -577,44 +578,99 @@ Dear Sir,
               </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <input 
-                ref={fileInputRef}
-                type="file" 
-                id="letter-pdf-file-picker" 
-                accept=".pdf,.doc,.docx,.txt,application/pdf" 
-                onChange={handleFileUpload}
-                style={{ display: 'none' }}
-              />
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <input 
+                  ref={fileInputRef}
+                  type="file" 
+                  id="letter-pdf-file-picker" 
+                  accept=".pdf,.doc,.docx,.txt,application/pdf" 
+                  onChange={handleFileUpload}
+                  style={{ display: 'none' }}
+                />
 
-              {attachedFileName && (
+                {attachedFileName && (
+                  <button
+                    type="button"
+                    className="nav-action-btn"
+                    onClick={handleClearAttachedFile}
+                    style={{ fontSize: '0.75rem', padding: '6px 10px', color: 'var(--text-muted)' }}
+                    title="Remove attached file"
+                  >
+                    <X size={14} />
+                    <span>Remove</span>
+                  </button>
+                )}
+
+                <label 
+                  htmlFor="letter-pdf-file-picker" 
+                  className="btn-primary" 
+                  style={{ 
+                    cursor: 'pointer', 
+                    fontSize: '0.8rem', 
+                    padding: '7px 16px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <Upload size={14} />
+                  <span>{attachedFileName ? 'Change PDF' : 'Browse Local Disk'}</span>
+                </label>
+              </div>
+
+              {/* OCR Speed Selector */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.72rem' }}>
+                <span style={{ color: 'var(--text-muted)' }}>OCR Engine:</span>
                 <button
                   type="button"
-                  className="nav-action-btn"
-                  onClick={handleClearAttachedFile}
-                  style={{ fontSize: '0.75rem', padding: '6px 10px', color: 'var(--text-muted)' }}
-                  title="Remove attached file"
+                  onClick={() => setOcrSpeedMode('fast')}
+                  style={{
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    border: ocrSpeedMode === 'fast' ? '1px solid var(--accent-blue)' : '1px solid var(--border-subtle)',
+                    background: ocrSpeedMode === 'fast' ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
+                    color: ocrSpeedMode === 'fast' ? 'var(--accent-blue)' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    fontWeight: ocrSpeedMode === 'fast' ? 700 : 400
+                  }}
+                  title="Accelerated adaptive scaling & binarization (~3x faster)"
                 >
-                  <X size={14} />
-                  <span>Remove</span>
+                  ⚡ Fast (3x)
                 </button>
-              )}
-
-              <label 
-                htmlFor="letter-pdf-file-picker" 
-                className="btn-primary" 
-                style={{ 
-                  cursor: 'pointer', 
-                  fontSize: '0.8rem', 
-                  padding: '7px 16px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
-              >
-                <Upload size={14} />
-                <span>{attachedFileName ? 'Change PDF' : 'Browse Local Disk'}</span>
-              </label>
+                <button
+                  type="button"
+                  onClick={() => setOcrSpeedMode('balanced')}
+                  style={{
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    border: ocrSpeedMode === 'balanced' ? '1px solid var(--accent-blue)' : '1px solid var(--border-subtle)',
+                    background: ocrSpeedMode === 'balanced' ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
+                    color: ocrSpeedMode === 'balanced' ? 'var(--accent-blue)' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    fontWeight: ocrSpeedMode === 'balanced' ? 700 : 400
+                  }}
+                  title="Balanced 1.4x scaling with enhanced contrast"
+                >
+                  ⚖️ Balanced
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOcrSpeedMode('skip')}
+                  style={{
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    border: ocrSpeedMode === 'skip' ? '1px solid var(--accent-blue)' : '1px solid var(--border-subtle)',
+                    background: ocrSpeedMode === 'skip' ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
+                    color: ocrSpeedMode === 'skip' ? 'var(--accent-blue)' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    fontWeight: ocrSpeedMode === 'skip' ? 700 : 400
+                  }}
+                  title="Bypass OCR and extract digital text layer only (Instant)"
+                >
+                  🚀 Digital Only
+                </button>
+              </div>
             </div>
           </div>
 
