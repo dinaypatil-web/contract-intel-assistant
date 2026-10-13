@@ -1,6 +1,25 @@
+// Polyfill Uint8Array toHex / fromHex for browsers/environments that do not support TC39 Uint8Array methods yet (needed by pdfjs-dist)
+if (typeof (Uint8Array.prototype as any).toHex !== 'function') {
+  (Uint8Array.prototype as any).toHex = function () {
+    return Array.from(this)
+      .map(b => (b as number).toString(16).padStart(2, '0'))
+      .join('');
+  };
+}
+if (typeof (Uint8Array as any).fromHex !== 'function') {
+  (Uint8Array as any).fromHex = function (hexString: string) {
+    const clean = (hexString || '').replace(/[^0-9a-fA-F]/g, '');
+    const bytes = new Uint8Array(Math.floor(clean.length / 2));
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] = parseInt(clean.substr(i * 2, 2), 16);
+    }
+    return bytes;
+  };
+}
+
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { ContractClause } from '../types/contract';
+import { ContractClause, DocumentPage } from '../types/contract';
 
 // Set worker source for Vite bundler
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
@@ -8,6 +27,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 export interface ExtractedPdfData {
   text: string;
   numPages: number;
+  pages: DocumentPage[];
   fileName: string;
   fileSizeBytes: number;
   fileSizeFormatted: string;
@@ -49,7 +69,6 @@ export function extractContractLetterMetadata(rawText: string, fileName: string)
 
   // 2. Date Detection
   let date = '';
-  // Look for formats: "Date: 14 October 2026", "Dated: 14/08/2026", "Date: 2026-08-14"
   const datePrefixMatch = textSample.match(/(?:Date|Dated)\s*[:\s]+([0-9]{1,2}(?:st|nd|rd|th)?[\s\/\-\.](?:[A-Za-z]+|[0-9]{1,2})[\s\/\-\.][0-9]{2,4}|[0-9]{4}[\-\/.][0-9]{1,2}[\-\/.][0-9]{1,2})/i);
   if (datePrefixMatch && datePrefixMatch[1]) {
     try {
@@ -62,7 +81,6 @@ export function extractContractLetterMetadata(rawText: string, fileName: string)
     }
   }
   if (!date) {
-    // Try generic date regex in header
     const genDateMatch = textSample.match(/\b([0-9]{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+202[0-9])\b/i);
     if (genDateMatch && genDateMatch[1]) {
       const parsed = new Date(genDateMatch[1]);
@@ -77,7 +95,6 @@ export function extractContractLetterMetadata(rawText: string, fileName: string)
   const subjMatch = rawText.match(/(?:Subject|Sub|Re|Regarding)\s*[:\s]+([^\n\r]+(?:\n[ \t]+[^\n\r]+)*)/i);
   if (subjMatch && subjMatch[1]) {
     subject = subjMatch[1].replace(/\s+/g, ' ').trim();
-    // Trim if too long
     if (subject.length > 180) {
       subject = subject.slice(0, 180) + '...';
     }
@@ -140,26 +157,55 @@ export function extractContractLetterMetadata(rawText: string, fileName: string)
 }
 
 /**
- * Parses raw text extracted from a contract PDF into structured ContractClause objects
+ * Parses raw text extracted from a contract PDF into structured ContractClause objects,
+ * mapping accurately across all pages.
  */
 export function parseClausesFromContractText(
   rawText: string,
   documentId: string,
   volumeNumber: string,
-  priorityRank: number = 5
+  priorityRank: number = 5,
+  pageList?: DocumentPage[]
 ): ContractClause[] {
   if (!rawText || !rawText.trim()) return [];
 
   const clauses: ContractClause[] = [];
-  
-  // Regex to detect clause boundaries:
-  // e.g. "Sub-Clause 8.4 Extension of Time for Completion"
-  // "Clause 20.2 Claims for Payment and EOT"
-  // "PC 8.4 [Extension of Time]"
-  // "8.4 Extension of Time"
-  // "Section 3.1 Contractor General Obligations"
-  // "Article 4 Governing Law"
   const clauseHeaderRegex = /(?:^|\n)\s*(?:(?:Sub-Clause|Clause|PC|GC|Section|Article)\s+([0-9]{1,2}(?:\.[0-9]{1,2})*|[0-9]{1,2})|([0-9]{1,2}\.[0-9]{1,2}(?:\.[0-9]{1,2})?))\s*[:\-\—\[]?\s*([^\n\r]+)/gi;
+
+  // Helper to determine which page a character index falls on
+  const getPageForIndex = (index: number): number => {
+    if (!pageList || pageList.length === 0) {
+      return 1;
+    }
+    // Calculate cumulative character boundaries for each page
+    let cumulative = 0;
+    for (const p of pageList) {
+      cumulative += p.text.length + 30; // 30 is approximate page break header length
+      if (index <= cumulative) {
+        return p.pageNumber;
+      }
+    }
+    return pageList[pageList.length - 1].pageNumber;
+  };
+
+  // Helper to classify clause category
+  const categorizeClause = (title: string, content: string): ContractClause['category'] => {
+    const lower = (title + ' ' + content).toLowerCase();
+    if (/delay|extension of time|eot|milestone|programme|program|time for completion|8\.[1-7]|rate of progress|acceleration/.test(lower)) {
+      return 'Time & EOT';
+    } else if (/claim|payment|interim payment|ipc|cost|14\.[0-9]|20\.2|financing|interest|price/.test(lower)) {
+      return 'Payment & Claims';
+    } else if (/variation|instruct|13\.[1-8]|change|adjustment|daywork/.test(lower)) {
+      return 'Variations';
+    } else if (/risk|insurance|indemnity|force majeure|exceptional event|17\.[0-9]|18\.[0-9]|19\.[0-9]/.test(lower)) {
+      return 'Risk & Insurance';
+    } else if (/termination|default|dispute|daab|arbitration|15\.[0-9]|16\.[0-9]|21\.[0-9]/.test(lower)) {
+      return 'Termination & Dispute';
+    } else if (/test|inspection|defect|quality|workmanship|7\.[0-9]|11\.[0-9]/.test(lower)) {
+      return 'Quality & Testing';
+    }
+    return 'Obligations';
+  };
 
   const matches: { index: number; clauseNumber: string; title: string; matchText: string }[] = [];
   let m: RegExpExecArray | null;
@@ -179,29 +225,17 @@ export function parseClausesFromContractText(
     }
   }
 
-  // If matches were found, slice content between matches
+  const coveredPages = new Set<number>();
+
   if (matches.length > 0) {
     for (let i = 0; i < matches.length; i++) {
       const current = matches[i];
       const nextIndex = i + 1 < matches.length ? matches[i + 1].index : rawText.length;
       const content = rawText.slice(current.index, nextIndex).trim();
+      const actualPage = getPageForIndex(current.index);
+      coveredPages.add(actualPage);
 
-      // Categorize
-      const lower = (current.title + ' ' + content).toLowerCase();
-      let category: ContractClause['category'] = 'Obligations';
-      if (/delay|extension of time|eot|milestone|programme|program|time for completion|8\.[1-7]|rate of progress|acceleration/.test(lower)) {
-        category = 'Time & EOT';
-      } else if (/claim|payment|interim payment|ipc|cost|14\.[0-9]|20\.2|financing|interest|price/.test(lower)) {
-        category = 'Payment & Claims';
-      } else if (/variation|instruct|13\.[1-8]|change|adjustment|daywork/.test(lower)) {
-        category = 'Variations';
-      } else if (/risk|insurance|indemnity|force majeure|exceptional event|17\.[0-9]|18\.[0-9]|19\.[0-9]/.test(lower)) {
-        category = 'Risk & Insurance';
-      } else if (/termination|default|dispute|daab|arbitration|15\.[0-9]|16\.[0-9]|21\.[0-9]/.test(lower)) {
-        category = 'Termination & Dispute';
-      } else if (/test|inspection|defect|quality|workmanship|7\.[0-9]|11\.[0-9]/.test(lower)) {
-        category = 'Quality & Testing';
-      }
+      const category = categorizeClause(current.title, content);
 
       // Time bar detection
       let timeBarDays: number | undefined = undefined;
@@ -233,10 +267,10 @@ export function parseClausesFromContractText(
         id: `cls-${documentId}-${i + 1}`,
         documentId,
         volumeNumber,
-        pageNumber: Math.max(1, Math.floor((current.index / Math.max(1, rawText.length)) * 30) + 1),
+        pageNumber: actualPage,
         clauseNumber: current.clauseNumber,
         title: current.title,
-        content: content.slice(0, 3000),
+        content: content.slice(0, 3500),
         category,
         interconnectedClauseIds,
         noticePeriodDays,
@@ -244,9 +278,49 @@ export function parseClausesFromContractText(
         priorityRank
       });
     }
+
+    // Ensure all remaining pages in pageList that had no explicit clause headers are also indexed
+    if (pageList && pageList.length > 0) {
+      pageList.forEach(page => {
+        if (!coveredPages.has(page.pageNumber) && page.text.trim().length > 10) {
+          const lines = page.text.trim().split('\n').map(l => l.trim()).filter(Boolean);
+          const firstLine = lines[0] && lines[0].length < 90 ? lines[0] : `Page ${page.pageNumber} Contract Provisions`;
+          clauses.push({
+            id: `cls-${documentId}-pg-${page.pageNumber}`,
+            documentId,
+            volumeNumber,
+            pageNumber: page.pageNumber,
+            clauseNumber: `Page ${page.pageNumber}`,
+            title: firstLine,
+            content: page.text.trim().slice(0, 3500),
+            category: categorizeClause(firstLine, page.text),
+            interconnectedClauseIds: [],
+            priorityRank
+          });
+        }
+      });
+    }
+  } else if (pageList && pageList.length > 0) {
+    // No regex matches found, but we have discrete pages: generate a structured clause per page
+    pageList.forEach(page => {
+      const lines = page.text.trim().split('\n').map(l => l.trim()).filter(Boolean);
+      const heading = lines[0] && lines[0].length < 100 ? lines[0] : `Page ${page.pageNumber} Specifications`;
+      clauses.push({
+        id: `cls-${documentId}-pg-${page.pageNumber}`,
+        documentId,
+        volumeNumber,
+        pageNumber: page.pageNumber,
+        clauseNumber: `Page ${page.pageNumber}`,
+        title: heading,
+        content: page.text.trim() || `[Page ${page.pageNumber} Content]`,
+        category: categorizeClause(heading, page.text),
+        interconnectedClauseIds: [],
+        priorityRank
+      });
+    });
   } else {
-    // Fallback: Segment raw text into logical section clauses (e.g. by page break or double-line breaks)
-    const sections = rawText.split(/\n\s*---\s*Page Break\s*---\s*\n|\n\n\n+/).filter(s => s.trim().length > 20);
+    // Fallback: Segment raw text into sections by page break or double-line breaks
+    const sections = rawText.split(/\n\s*---\s*Page Break(?:\s*\[Page\s*[0-9]+\])?\s*---\s*\n|\n\n\n+/).filter(s => s.trim().length > 10);
     if (sections.length > 0) {
       sections.forEach((sec, idx) => {
         const lines = sec.trim().split('\n').map(l => l.trim()).filter(Boolean);
@@ -259,7 +333,7 @@ export function parseClausesFromContractText(
           clauseNumber: `Sec ${idx + 1}`,
           title: heading,
           content: sec.trim(),
-          category: 'Obligations',
+          category: categorizeClause(heading, sec),
           interconnectedClauseIds: [],
           priorityRank
         });
@@ -280,15 +354,18 @@ export function parseClausesFromContractText(
     }
   }
 
+  // Sort clauses strictly by pageNumber ascending, then clauseNumber
+  clauses.sort((a, b) => a.pageNumber - b.pageNumber);
   return clauses;
 }
 
 /**
- * Extracts plain text and metadata from a PDF File or ArrayBuffer
+ * Extracts plain text, metadata, and per-page structures from a PDF File or ArrayBuffer
  */
 export async function extractTextFromPdf(file: File | ArrayBuffer, fileName: string = 'document.pdf'): Promise<ExtractedPdfData> {
   const bytes = file instanceof File ? file.size : file.byteLength;
-  const arrayBuffer = file instanceof File ? await file.arrayBuffer() : file;
+  // Clone or acquire arrayBuffer safely without risking detached buffer issues
+  const arrayBuffer = file instanceof File ? await file.arrayBuffer() : file.slice(0);
 
   try {
     const loadingTask = pdfjsLib.getDocument({
@@ -298,30 +375,47 @@ export async function extractTextFromPdf(file: File | ArrayBuffer, fileName: str
     });
 
     const pdf = await loadingTask.promise;
-    const numPages = pdf.numPages;
-    const pageTexts: string[] = [];
+    const numPages = pdf.numPages || 1;
+    const pageRecords: DocumentPage[] = [];
 
     for (let i = 1; i <= numPages; i++) {
-      const page = await pdf.getPage(i);
-      const textContent = await page.getTextContent();
-      
-      const pageString = textContent.items
-        .map((item: any) => (item && typeof item.str === 'string' ? item.str : ''))
-        .join(' ');
+      try {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        
+        const pageString = textContent.items
+          .map((item: any) => (item && typeof item.str === 'string' ? item.str : ''))
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim();
 
-      if (pageString.trim()) {
-        pageTexts.push(pageString.trim());
+        pageRecords.push({
+          pageNumber: i,
+          text: pageString || `[Page ${i} - Scanned or Visual Graphics]`
+        });
+      } catch (pageErr) {
+        console.warn(`Warning: failed to extract text from page ${i}:`, pageErr);
+        pageRecords.push({
+          pageNumber: i,
+          text: `[Page ${i} - Text extraction unavailable]`
+        });
       }
     }
 
-    const fullText = pageTexts.join('\n\n--- Page Break ---\n\n').trim();
-    const isScannedOrEmpty = fullText.length < 40;
+    const fullText = pageRecords
+      .map(p => `--- Page Break [Page ${p.pageNumber}] ---\n\n${p.text}`)
+      .join('\n\n')
+      .trim();
+
+    const totalExtractedLength = pageRecords.reduce((sum, p) => sum + (p.text.includes('[Page') ? 0 : p.text.length), 0);
+    const isScannedOrEmpty = totalExtractedLength < 30;
 
     const extracted = extractContractLetterMetadata(fullText, fileName);
 
     return {
       text: fullText,
       numPages,
+      pages: pageRecords,
       fileName,
       fileSizeBytes: bytes,
       fileSizeFormatted: formatFileSize(bytes),
@@ -342,6 +436,10 @@ export async function extractTextFromPdf(file: File | ArrayBuffer, fileName: str
       const decoder = new TextDecoder('latin1');
       const rawStr = decoder.decode(new Uint8Array(arrayBuffer));
       
+      // Determine page count via /Type /Page occurrences in PDF dictionary
+      const pageTypeMatches = rawStr.match(/\/Type\s*\/Page\b/g);
+      const estimatedPages = Math.max(1, pageTypeMatches ? pageTypeMatches.length : 1);
+
       // Look for text streams in PDF between BT and ET
       const textSnippets: string[] = [];
       const btMatches = rawStr.matchAll(/BT[\s\S]*?ET/g);
@@ -357,9 +455,33 @@ export async function extractTextFromPdf(file: File | ArrayBuffer, fileName: str
       const fallbackText = textSnippets.join(' ').trim();
       const extracted = extractContractLetterMetadata(fallbackText, fileName);
 
+      // Split fallback text across estimated pages
+      const fallbackPages: DocumentPage[] = [];
+      if (estimatedPages > 1 && fallbackText) {
+        const chunkSize = Math.max(100, Math.ceil(fallbackText.length / estimatedPages));
+        for (let p = 1; p <= estimatedPages; p++) {
+          const start = (p - 1) * chunkSize;
+          const chunk = fallbackText.slice(start, start + chunkSize).trim();
+          fallbackPages.push({
+            pageNumber: p,
+            text: chunk || `[Page ${p}]`
+          });
+        }
+      } else {
+        fallbackPages.push({
+          pageNumber: 1,
+          text: fallbackText || `[Document: ${fileName}]`
+        });
+      }
+
+      const formattedFullText = fallbackPages
+        .map(p => `--- Page Break [Page ${p.pageNumber}] ---\n\n${p.text}`)
+        .join('\n\n');
+
       return {
-        text: fallbackText || `[Document: ${fileName}]\n\n(Could not automatically extract text from this PDF. Please verify whether it is a scanned image or protected document.)`,
-        numPages: 1,
+        text: formattedFullText,
+        numPages: estimatedPages,
+        pages: fallbackPages,
         fileName,
         fileSizeBytes: bytes,
         fileSizeFormatted: formatFileSize(bytes),
@@ -370,12 +492,14 @@ export async function extractTextFromPdf(file: File | ArrayBuffer, fileName: str
         recipient: extracted.recipient,
         detectedClauses: extracted.detectedClauses,
         suggestedClassification: extracted.suggestedClassification,
-        isScannedOrEmpty: fallbackText.length < 40
+        isScannedOrEmpty: fallbackText.length < 30
       };
-    } catch {
+    } catch (fallbackErr) {
+      console.error('Fallback PDF decoding failed:', fallbackErr);
       return {
-        text: `[Document: ${fileName}]\n\n(PDF format could not be decoded. Please enter letter text manually or attach unencrypted PDF.)`,
+        text: `[Document: ${fileName}]\n\n(PDF format could not be decoded. Please enter text manually or attach unencrypted PDF.)`,
         numPages: 1,
+        pages: [{ pageNumber: 1, text: `[Document: ${fileName}]` }],
         fileName,
         fileSizeBytes: bytes,
         fileSizeFormatted: formatFileSize(bytes),

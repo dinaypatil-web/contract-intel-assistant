@@ -22,6 +22,7 @@ interface NavbarProps {
   onSearchChange: (q: string) => void;
   onOpenNewProjectModal: () => void;
   onOpenIngestModal?: () => void;
+  onOpenAddDocumentModal?: () => void;
   userProfile?: UserProfile;
   onOpenProfileModal?: () => void;
 }
@@ -38,6 +39,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSearchChange,
   onOpenNewProjectModal,
   onOpenIngestModal,
+  onOpenAddDocumentModal,
   userProfile,
   onOpenProfileModal
 }) => {
@@ -89,6 +91,17 @@ export const Navbar: React.FC<NavbarProps> = ({
         >
           + New Project
         </button>
+
+        {activeProject && onOpenAddDocumentModal && (
+          <button 
+            className="btn-secondary" 
+            style={{ fontSize: '0.78rem', padding: '6px 12px', height: '34px' }}
+            onClick={onOpenAddDocumentModal}
+            title="Add or upload a new contract volume to active project"
+          >
+            + Add Document
+          </button>
+        )}
 
         {activeProject && onOpenIngestModal && (
           <button 

@@ -43,6 +43,12 @@ export interface UserProfile {
   notes?: string;
 }
 
+export interface DocumentPage {
+  pageNumber: number;
+  text: string;
+  clauseCount?: number;
+}
+
 export interface ContractDocument {
   id: string;
   projectId: string;
@@ -55,6 +61,7 @@ export interface ContractDocument {
   clauses: ContractClause[];
   summary: string;
   rawText?: string;
+  pages?: DocumentPage[];
   fileName?: string;
   fileSize?: string;
 }

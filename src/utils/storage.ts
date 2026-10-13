@@ -55,15 +55,23 @@ export function saveUserProfile(profile: UserProfile): boolean {
   }
 }
 
+// In-memory cache for full project fidelity including large documents
+let inMemoryProjectsCache: Project[] | null = null;
+
 /**
- * Loads all projects from persistent localStorage
+ * Loads all projects from memory cache or persistent localStorage
  */
 export function loadProjects(): Project[] {
+  if (inMemoryProjectsCache && inMemoryProjectsCache.length > 0) {
+    return inMemoryProjectsCache;
+  }
+
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.PROJECTS);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
+        inMemoryProjectsCache = parsed;
         return parsed;
       }
     }
@@ -74,15 +82,39 @@ export function loadProjects(): Project[] {
 }
 
 /**
- * Saves all projects to persistent localStorage
+ * Saves all projects to in-memory cache and persistent localStorage
+ * Gracefully handles localStorage QuotaExceededError by keeping full fidelity in memory
+ * and saving a clean payload to localStorage.
  */
 export function saveProjects(projects: Project[]): boolean {
+  inMemoryProjectsCache = projects;
   try {
     localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(projects));
     return true;
-  } catch (err) {
-    console.error('Failed to save projects to localStorage:', err);
-    return false;
+  } catch (err: any) {
+    console.warn('LocalStorage quota exceeded or save error; applying compact persistence:', err);
+    try {
+      // Create a compact version for localStorage: keep clauses and page metadata, but cap rawText per document
+      const compactProjects = projects.map(proj => ({
+        ...proj,
+        documents: proj.documents.map(doc => ({
+          ...doc,
+          rawText: doc.rawText && doc.rawText.length > 80000 
+            ? doc.rawText.slice(0, 80000) + '... [Full text indexed in local memory]' 
+            : doc.rawText,
+          pages: doc.pages?.map(p => ({
+            ...p,
+            text: p.text.length > 15000 ? p.text.slice(0, 15000) + '...' : p.text
+          }))
+        }))
+      }));
+
+      localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(compactProjects));
+      return true;
+    } catch (innerErr) {
+      console.error('Failed even compact save to localStorage:', innerErr);
+      return false;
+    }
   }
 }
 

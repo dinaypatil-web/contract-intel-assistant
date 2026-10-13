@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Project, PrecedenceRule, DocumentType, ContractClause, ContractDocument } from '../../types/contract';
+import { Project, PrecedenceRule, DocumentType, ContractClause, ContractDocument, DocumentPage } from '../../types/contract';
 import { 
   Building2, 
   FolderPlus, 
@@ -53,6 +53,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
     size: string;
     type: string;
     pages: number;
+    pageDetails: DocumentPage[];
     isPdf: boolean;
     rawText: string;
     clauses: ContractClause[];
@@ -84,24 +85,38 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
           let docType = 'Contract Document';
           let pages = 1;
           let extractedText = '';
+          let pageDetails: DocumentPage[] = [];
 
           if (isPdf) {
             try {
               const result = await extractTextFromPdf(file, file.name);
-              pages = result.numPages || 1;
+              pages = result.numPages || (result.pages ? result.pages.length : 1);
               extractedText = result.text || '';
+              pageDetails = result.pages || [{ pageNumber: 1, text: extractedText }];
               if (result.suggestedClassification && result.suggestedClassification !== 'General Communication') {
                 docType = result.suggestedClassification;
               }
             } catch (err) {
               console.error('Failed to parse PDF text/pages:', err);
+              pageDetails = [{ pageNumber: 1, text: `[Document: ${file.name}]` }];
             }
           } else {
             try {
               extractedText = await file.text();
-              pages = Math.max(1, Math.ceil(extractedText.length / 2500));
+              const textSections = extractedText.split(/\n\s*---\s*Page Break(?:\s*\[Page\s*[0-9]+\])?\s*---\s*\n|\f/).filter(Boolean);
+              if (textSections.length > 1) {
+                pages = textSections.length;
+                pageDetails = textSections.map((sec, i) => ({ pageNumber: i + 1, text: sec.trim() }));
+              } else {
+                pages = Math.max(1, Math.ceil(extractedText.length / 2500));
+                pageDetails = Array.from({ length: pages }, (_, i) => ({
+                  pageNumber: i + 1,
+                  text: extractedText.slice(i * 2500, (i + 1) * 2500).trim()
+                }));
+              }
             } catch (err) {
               console.error('Failed to read file as text:', err);
+              pageDetails = [{ pageNumber: 1, text: `[Document: ${file.name}]` }];
             }
           }
 
@@ -125,7 +140,8 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             extractedText,
             tempDocId,
             volNumber,
-            priorityRank
+            priorityRank,
+            pageDetails
           );
 
           return {
@@ -133,6 +149,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             size: sizeFormatted,
             type: docType,
             pages,
+            pageDetails,
             isPdf,
             rawText: extractedText,
             clauses: parsedClauses
@@ -158,6 +175,80 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
       await processIncomingFiles([file]);
     } catch (err) {
       console.error('Failed to load sample contract:', err);
+    } finally {
+      setIsParsingFiles(false);
+    }
+  };
+
+  const handleLoadMultiVolumeSuite = async () => {
+    setIsParsingFiles(true);
+    try {
+      // 1. Fetch the 5-page sample contract PDF
+      const resp = await fetch('/sample-contract.pdf');
+      const blob = await resp.blob();
+      const file1 = new File([blob], 'Vol_1_Particular_Conditions_FIDIC_2017.pdf', { type: 'application/pdf' });
+
+      // 2. Synthesize Volume 2: General Conditions
+      const vol2Pages: DocumentPage[] = [
+        {
+          pageNumber: 1,
+          text: 'Clause 1.1 Definitions and Interpretation\nIn the Conditions of Contract ("these Conditions"), which include Particular Conditions, Part A and Part B, and these General Conditions, the following words and expressions shall have the meanings stated.'
+        },
+        {
+          pageNumber: 2,
+          text: 'Clause 3.7 Determinations\nWhen carrying out his/her duties under this Sub-Clause, the Engineer shall act neutrally and shall not be deemed to act for the Employer. The Engineer shall consult both Parties and endeavor to reach agreement.'
+        },
+        {
+          pageNumber: 3,
+          text: 'Clause 4.12 Unforeseeable Physical Conditions\nIf the Contractor encounters physical conditions which are Unforeseeable, the Contractor shall give a Notice to the Engineer within 28 days and shall be entitled to an extension of time and payment of Cost.'
+        },
+        {
+          pageNumber: 4,
+          text: 'Clause 20.1 Claims\nA Claim may arise under these Conditions or in connection with the Contract. The claiming Party shall submit a Notice of Claim as soon as practicable and no later than 28 days after becoming aware.'
+        }
+      ];
+      const vol2Text = vol2Pages.map(p => `--- Page Break [Page ${p.pageNumber}] ---\n\n${p.text}`).join('\n\n');
+      const file2 = new File([vol2Text], 'Vol_2_General_Conditions_FIDIC_Red_Book.txt', { type: 'text/plain' });
+
+      // 3. Synthesize Volume 3: Employer's Requirements & Specifications
+      const vol3Pages: DocumentPage[] = [
+        {
+          pageNumber: 1,
+          text: 'Section 1.0 General Specifications & Scope of Civil Works\nThe Works comprise the engineering, procurement, and construction of 14.8 km dual-track elevated viaduct, 11 stations, and associated electrical utility diversions.'
+        },
+        {
+          pageNumber: 2,
+          text: 'Section 2.0 Utility Relocation & Handover Protocol\nSub-Clause 2.4 Handover Schedule: Access to utility corridors between Pier 102 and Pier 140 shall be provided to the Contractor strictly within 45 days of commencement.'
+        },
+        {
+          pageNumber: 3,
+          text: 'Section 3.0 Quality Assurance & Concrete Curing Standards\nAll cast-in-situ pier caps and segmental box girders shall conform to Grade C50/60 high-performance concrete with mandatory 14-day wet burlap curing.'
+        }
+      ];
+      const vol3Text = vol3Pages.map(p => `--- Page Break [Page ${p.pageNumber}] ---\n\n${p.text}`).join('\n\n');
+      const file3 = new File([vol3Text], 'Vol_3_Technical_Specifications_and_Scope.txt', { type: 'text/plain' });
+
+      // 4. Synthesize Volume 4: Priced BOQ & Schedules
+      const vol4Pages: DocumentPage[] = [
+        {
+          pageNumber: 1,
+          text: 'Schedule A: Preliminaries and General Obligations\nItem 1.1 Mobilization of Plant and Specialist Cranes: Lump Sum $4,200,000.\nItem 1.2 Traffic Management and Detours: Lump Sum $1,850,000.'
+        },
+        {
+          pageNumber: 2,
+          text: 'Schedule B: Substructure and Piling Works\nItem 2.1 1200mm Dia Bored Cast-in-Situ Piling: 14,200 Lin.m @ $420/m = $5,964,000.\nItem 2.2 Reinforced Concrete Pier Shafts: 8,400 cu.m @ $680/cu.m = $5,712,000.'
+        },
+        {
+          pageNumber: 3,
+          text: 'Schedule C: Daywork Schedule and Mandatory Labour Rates\nItem 3.1 Specialist Crane Operator: $65.00/Hour.\nItem 3.2 Heavy Rigging Gang: $180.00/Hour.\nItem 3.3 Overtime Expediting Multiplier: 1.5x Base Rate subject to Clause 13.3.'
+        }
+      ];
+      const vol4Text = vol4Pages.map(p => `--- Page Break [Page ${p.pageNumber}] ---\n\n${p.text}`).join('\n\n');
+      const file4 = new File([vol4Text], 'Vol_4_Priced_Bill_of_Quantities_BOQ.txt', { type: 'text/plain' });
+
+      await processIncomingFiles([file1, file2, file3, file4]);
+    } catch (err) {
+      console.error('Failed to load multi-volume contract suite:', err);
     } finally {
       setIsParsingFiles(false);
     }
@@ -227,7 +318,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                     volumeNumber,
                     priorityRank
                   }))
-                : parseClausesFromContractText(f.rawText || '', docId, volumeNumber, priorityRank);
+                : parseClausesFromContractText(f.rawText || '', docId, volumeNumber, priorityRank, f.pageDetails);
 
               return {
                 id: docId,
@@ -237,9 +328,10 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                 documentType: f.type as DocumentType,
                 revision: 'Rev. 00 Local',
                 date: commencementDate || new Date().toISOString().split('T')[0],
-                pageCount: f.pages || Math.max(1, Math.ceil(docClauses.length * 1.5)),
+                pageCount: f.pages || (f.pageDetails && f.pageDetails.length > 0 ? f.pageDetails.length : 1),
                 summary: `Local contract volume parsed from ${f.name} (${f.size}, ${f.pages} pages, ${docClauses.length} parsed clauses)`,
                 rawText: f.rawText || '',
+                pages: f.pageDetails || [],
                 fileName: f.name,
                 fileSize: f.size,
                 clauses: docClauses
@@ -562,17 +654,29 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                   </span>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                   <button 
                     type="button"
                     className="btn-secondary" 
                     onClick={handleLoadSamplePdf}
                     disabled={isParsingFiles}
                     style={{ fontSize: '0.78rem', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                    title="Load sample FIDIC Red Book contract PDF with Clauses 8.4 and 20.2"
+                    title="Load sample FIDIC Red Book contract PDF (5 Pages)"
                   >
                     <Sparkles size={14} color="var(--accent-blue)" />
-                    <span>+ Load Sample FIDIC PDF</span>
+                    <span>+ Load Sample FIDIC PDF (5 Pages)</span>
+                  </button>
+
+                  <button 
+                    type="button"
+                    className="btn-secondary" 
+                    onClick={handleLoadMultiVolumeSuite}
+                    disabled={isParsingFiles}
+                    style={{ fontSize: '0.78rem', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    title="Load complete 4-Volume FIDIC Suite with 15 pages (PC, GC, Specs, BOQ)"
+                  >
+                    <Layers size={14} color="#818cf8" />
+                    <span>+ Multi-Volume Suite (4 Files, 15 Pgs)</span>
                   </button>
 
                   <input 
@@ -580,7 +684,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                     type="file" 
                     id="local-contract-files" 
                     multiple 
-                    accept=".pdf,.doc,.docx,.xls,.xlsx,application/pdf" 
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,application/pdf" 
                     onChange={handleFileSelection}
                     style={{ display: 'none' }}
                   />
@@ -666,11 +770,9 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                         <div>
                           <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <span>{file.name}</span>
-                            {file.isPdf && (
-                              <span className="badge badge-neutral" style={{ fontSize: '0.68rem', padding: '1px 6px' }}>
-                                PDF • {file.pages} {file.pages === 1 ? 'Page' : 'Pages'}
-                              </span>
-                            )}
+                            <span className="badge badge-neutral" style={{ fontSize: '0.68rem', padding: '1px 6px' }}>
+                              {file.isPdf ? 'PDF' : 'DOC'} • {file.pages} {file.pages === 1 ? 'Page' : 'Pages'}
+                            </span>
                             {file.clauses.length > 0 && (
                               <span className="badge badge-success" style={{ fontSize: '0.68rem', padding: '1px 6px' }}>
                                 {file.clauses.length} Clauses Parsed

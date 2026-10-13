@@ -3,43 +3,186 @@
 << /Type /Catalog /Pages 2 0 R >>
 endobj
 2 0 obj
-<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+<< /Type /Pages /Kids [4 0 R 5 0 R 6 0 R 7 0 R 8 0 R] /Count 5 >>
 endobj
 3 0 obj
-<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
-endobj
-4 0 obj
 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
 endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 9 0 R >>
+endobj
 5 0 obj
-<< /Length 285 >>
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 10 0 R >>
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 11 0 R >>
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 12 0 R >>
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 13 0 R >>
+endobj
+9 0 obj
+<< /Length 903 >>
 stream
 BT
-/F1 16 Tf
+/F1 15 Tf
 50 720 Td
-(Conditions of Particular Application) Tj
-/F1 12 Tf
-0 -40 Td
+(CONDITIONS OF PARTICULAR APPLICATION) Tj
+/F1 11 Tf
+1 0 0 1 50 660 Tm
+(Contract Title: FIDIC Conditions of Contract for Construction Red Book 2017) Tj
+1 0 0 1 50 640 Tm
+(Particular Conditions Part B - Special Contractual Provisions) Tj
+1 0 0 1 50 605 Tm
+(Sub-Clause 1.5 Priority of Documents) Tj
+1 0 0 1 50 585 Tm
+(The documents forming the Contract are to be taken as mutually explanatory of one another.) Tj
+1 0 0 1 50 565 Tm
+(If there is an ambiguity or discrepancy in the documents, the priority of the documents shall be:) Tj
+1 0 0 1 50 545 Tm
+(a Contract Agreement, b Letter of Acceptance, c Particular Conditions PC,) Tj
+1 0 0 1 50 525 Tm
+(d General Conditions GC, e Specifications, f Drawings, and g Priced BOQ.) Tj
+1 0 0 1 50 505 Tm
+(The Particular Conditions shall strictly prevail over the standard General Conditions.) Tj
+1 0 0 1 500 40 Tm
+/F1 9 Tf
+(Page 1 of 5) Tj
+ET
+endstream
+endobj
+10 0 obj
+<< /Length 896 >>
+stream
+BT
+/F1 15 Tf
+50 720 Td
+(CLAUSE 8 - COMMENCEMENT AND DELAYS) Tj
+/F1 11 Tf
+1 0 0 1 50 660 Tm
 (Sub-Clause 8.4 Extension of Time for Completion) Tj
-0 -25 Td
-(The Contractor shall be entitled to an extension of the Time for Completion.) Tj
-0 -25 Td
-(Sub-Clause 20.2 Claims for Payment and EOT) Tj
-0 -25 Td
-(Notice must be submitted within 28 days after the Contractor became aware.) Tj
+1 0 0 1 50 640 Tm
+(The Contractor shall be entitled subject to Sub-Clause 20.2 [Claims for Payment and/or EOT] to an) Tj
+1 0 0 1 50 620 Tm
+(Extension of the Time for Completion if and to the extent that completion is or will be delayed by:) Tj
+1 0 0 1 50 600 Tm
+(a A Variation or substantial change in the quantity of an item of work in the Contract;) Tj
+1 0 0 1 50 580 Tm
+(b Exceptionally adverse climatic conditions beyond historical 30-year meteorological return periods;) Tj
+1 0 0 1 50 560 Tm
+(c Unforeseeable physical conditions encountered on Site pursuant to Sub-Clause 4.12; or) Tj
+1 0 0 1 50 540 Tm
+(d Any delay, impediment or prevention caused by or attributable to the Employer or Engineer.) Tj
+1 0 0 1 500 40 Tm
+/F1 9 Tf
+(Page 2 of 5) Tj
+ET
+endstream
+endobj
+11 0 obj
+<< /Length 859 >>
+stream
+BT
+/F1 15 Tf
+50 720 Td
+(CLAUSE 8.6 - RATE OF PROGRESS AND EXPEDITING) Tj
+/F1 11 Tf
+1 0 0 1 50 660 Tm
+(Sub-Clause 8.6 Rate of Progress) Tj
+1 0 0 1 50 640 Tm
+(If at any time the Engineer determines that actual progress is lagging behind the approved schedule,) Tj
+1 0 0 1 50 620 Tm
+(other than as a result of a cause listed in Sub-Clause 8.4, the Engineer may instruct the Contractor) Tj
+1 0 0 1 50 600 Tm
+(to submit a revised Recovery Programme and expedited method statement.) Tj
+1 0 0 1 50 580 Tm
+(Unless the delay was contributed to by an Employer Risk event, expediting measures including) Tj
+1 0 0 1 50 560 Tm
+(supplementary shifts and overtime shall be executed at the Contractor own risk and cost.) Tj
+1 0 0 1 50 540 Tm
+(Sub-Clause 8.7 Delay Damages apply if completion is delayed without approved EOT.) Tj
+1 0 0 1 500 40 Tm
+/F1 9 Tf
+(Page 3 of 5) Tj
+ET
+endstream
+endobj
+12 0 obj
+<< /Length 730 >>
+stream
+BT
+/F1 15 Tf
+50 720 Td
+(CLAUSE 13 - VARIATIONS AND CONTRACT ADJUSTMENTS) Tj
+/F1 11 Tf
+1 0 0 1 50 660 Tm
+(Sub-Clause 13.1 Right to Vary) Tj
+1 0 0 1 50 640 Tm
+(Variations may be initiated by the Engineer at any time prior to issuing the Taking-Over Certificate.) Tj
+1 0 0 1 50 620 Tm
+(Sub-Clause 13.3 Variation Procedure) Tj
+1 0 0 1 50 600 Tm
+(Prior to instructing any Variation, the Engineer may request the Contractor to submit a quotation.) Tj
+1 0 0 1 50 580 Tm
+(Within 14 days of receipt of the request, the Contractor shall submit a detailed cost estimate) Tj
+1 0 0 1 50 560 Tm
+(and schedule evaluation detailing contemporary labor rates, equipment, and critical path impacts.) Tj
+1 0 0 1 500 40 Tm
+/F1 9 Tf
+(Page 4 of 5) Tj
+ET
+endstream
+endobj
+13 0 obj
+<< /Length 1052 >>
+stream
+BT
+/F1 15 Tf
+50 720 Td
+(CLAUSE 20 - CLAIMS FOR PAYMENT AND TIME EXTENSION) Tj
+/F1 11 Tf
+1 0 0 1 50 660 Tm
+(Sub-Clause 20.2 Claims for Payment and/or EOT) Tj
+1 0 0 1 50 640 Tm
+(If the Contractor considers itself entitled to additional payment under any Clause or otherwise in connection) Tj
+1 0 0 1 50 620 Tm
+(with the Contract, and/or to any extension of the Time for Completion, the Contractor shall submit a Notice) Tj
+1 0 0 1 50 600 Tm
+(to the Engineer describing the event or circumstance giving rise to the claim.) Tj
+1 0 0 1 50 580 Tm
+(The Notice shall be given as soon as practicable, and no later than 28 days after the Contractor became aware.) Tj
+1 0 0 1 50 560 Tm
+(If the Contractor fails to give a Notice of Claim within this period of 28 days, the Time for Completion) Tj
+1 0 0 1 50 540 Tm
+(shall not be extended, the Contractor shall not be entitled to additional payment, and the Employer) Tj
+1 0 0 1 50 520 Tm
+(shall be fully discharged from all liability in connection with the claim.) Tj
+1 0 0 1 500 40 Tm
+/F1 9 Tf
+(Page 5 of 5) Tj
 ET
 endstream
 endobj
 xref
-0 6
+0 14
 0000000000 65535 f 
 0000000009 00000 n 
 0000000058 00000 n 
-0000000115 00000 n 
-0000000228 00000 n 
-0000000305 00000 n 
+0000000139 00000 n 
+0000000209 00000 n 
+0000000335 00000 n 
+0000000462 00000 n 
+0000000589 00000 n 
+0000000716 00000 n 
+0000000843 00000 n 
+0000001797 00000 n 
+0000002745 00000 n 
+0000003656 00000 n 
+0000004438 00000 n 
 trailer
-<< /Size 6 /Root 1 0 R >>
+<< /Size 14 /Root 1 0 R >>
 startxref
-643
+5543
 %%EOF

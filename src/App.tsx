@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Project, IncomingLetterReview, ContractClause, UserProfile } from './types/contract';
+import { Project, IncomingLetterReview, ContractClause, ContractDocument, UserProfile } from './types/contract';
 import { mockAlerts, mockClaims } from './data/mockAlertsAndClaims';
 import { mockTimeline } from './data/mockTimeline';
 import { mockConflicts } from './data/mockConflicts';
@@ -29,6 +29,7 @@ import { Sidebar, ActiveView } from './components/Sidebar';
 import { DashboardView } from './components/Dashboard/DashboardView';
 import { LetterReviewStudio } from './components/LetterReviewStudio/LetterReviewStudio';
 import { HierarchyExplorer } from './components/HierarchyExplorer/HierarchyExplorer';
+import { AddDocumentModal } from './components/HierarchyExplorer/AddDocumentModal';
 import { ContractChat } from './components/ContractChat/ContractChat';
 import { EarlyWarningView } from './components/EarlyWarning/EarlyWarningView';
 import { ClaimsAndVariationsView } from './components/ClaimsAndVariations/ClaimsAndVariationsView';
@@ -59,6 +60,7 @@ export const App: React.FC = () => {
   const [chatPrompt, setChatPrompt] = useState<string>('');
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState<boolean>(false);
   const [isIngestModalOpen, setIsIngestModalOpen] = useState<boolean>(false);
+  const [isAddDocumentModalOpen, setIsAddDocumentModalOpen] = useState<boolean>(false);
   const [letters, setLetters] = useState<IncomingLetterReview[]>(() => loadLetters());
 
   // Project-isolated data
@@ -137,6 +139,38 @@ export const App: React.FC = () => {
     setIsIngestModalOpen(false);
   };
 
+  const handleAddContractDocument = (newDoc: ContractDocument) => {
+    if (!activeProject) return;
+    const updatedDocuments = [...activeProject.documents, newDoc];
+    const updatedProject: Project = {
+      ...activeProject,
+      documents: updatedDocuments
+    };
+    setActiveProject(updatedProject);
+    setProjects(prev => {
+      const updated = prev.map(p => p.id === activeProject.id ? updatedProject : p);
+      saveProjects(updated);
+      return updated;
+    });
+    setIsAddDocumentModalOpen(false);
+    setActiveView('hierarchy');
+  };
+
+  const handleRemoveContractDocument = (docId: string) => {
+    if (!activeProject) return;
+    const updatedDocuments = activeProject.documents.filter(d => d.id !== docId);
+    const updatedProject: Project = {
+      ...activeProject,
+      documents: updatedDocuments
+    };
+    setActiveProject(updatedProject);
+    setProjects(prev => {
+      const updated = prev.map(p => p.id === activeProject.id ? updatedProject : p);
+      saveProjects(updated);
+      return updated;
+    });
+  };
+
   const handleLaunchChatWithClause = (clause: ContractClause) => {
     setChatPrompt(`Analyze our contractual rights, obligations, and notice requirements under ${clause.clauseNumber} (${clause.title}) in ${clause.volumeNumber}.`);
     setActiveView('chat');
@@ -167,6 +201,7 @@ export const App: React.FC = () => {
           onSearchChange={setSearchQuery}
           onOpenNewProjectModal={() => setIsNewProjectModalOpen(true)}
           onOpenIngestModal={() => setIsIngestModalOpen(true)}
+          onOpenAddDocumentModal={() => setIsAddDocumentModalOpen(true)}
           userProfile={userProfile}
           onOpenProfileModal={() => setIsProfileModalOpen(true)}
         />
@@ -201,6 +236,15 @@ export const App: React.FC = () => {
             onClose={() => setIsIngestModalOpen(false)}
             project={activeProject}
             onIngestLetter={handleIngestLetter}
+          />
+        )}
+
+        {activeProject && (
+          <AddDocumentModal
+            isOpen={isAddDocumentModalOpen}
+            onClose={() => setIsAddDocumentModalOpen(false)}
+            project={activeProject}
+            onAddDocument={handleAddContractDocument}
           />
         )}
 
@@ -328,6 +372,8 @@ export const App: React.FC = () => {
                   <HierarchyExplorer
                     project={activeProject}
                     onSelectClauseForChat={handleLaunchChatWithClause}
+                    onAddDocument={handleAddContractDocument}
+                    onRemoveDocument={handleRemoveContractDocument}
                   />
                 )}
 
