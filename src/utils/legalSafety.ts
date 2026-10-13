@@ -234,7 +234,8 @@ export function generateFormalContractReply(
   contractorName: string,
   projectCode: string,
   questionnaire: QuestionnaireQuestion[],
-  responseMatrix: ResponseMatrixRow[]
+  responseMatrix: ResponseMatrixRow[],
+  authorProfile?: { name?: string; role?: string; credentials?: string }
 ): string {
   const currentDate = new Date().toLocaleDateString('en-GB', {
     day: '2-digit',
@@ -339,7 +340,8 @@ For and on behalf of
 ${contractorName}
 
 _______________________________
-Authorized Signatory / Project Director
+${authorProfile?.name || 'Authorized Signatory'}${authorProfile?.credentials ? ` (${authorProfile.credentials})` : ''}
+${authorProfile?.role || 'Project Director / Commercial Directorate'}
 
 Encl:
 1. Annexure A: Contemporaneous Joint Survey Records & Daily Progress Reports

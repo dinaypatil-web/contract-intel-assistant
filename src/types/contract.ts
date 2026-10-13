@@ -32,6 +32,17 @@ export interface ContractClause {
   priorityRank: number; // 1 being highest priority
 }
 
+export interface UserProfile {
+  name: string;
+  role: string;
+  organization: string;
+  email: string;
+  credentials?: string;
+  avatarInitials?: string;
+  phone?: string;
+  notes?: string;
+}
+
 export interface ContractDocument {
   id: string;
   projectId: string;
@@ -43,6 +54,9 @@ export interface ContractDocument {
   pageCount: number;
   clauses: ContractClause[];
   summary: string;
+  rawText?: string;
+  fileName?: string;
+  fileSize?: string;
 }
 
 export interface Project {
@@ -59,6 +73,7 @@ export interface Project {
   originalCompletionDate: string;
   revisedCompletionDate: string;
   currentEOTDays: number;
+  userRole?: string;
   orderOfPrecedence: PrecedenceRule[];
   documents: ContractDocument[];
   stats: {

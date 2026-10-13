@@ -1,5 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { ContractClause } from '../types/contract';
 
 // Set worker source for Vite bundler
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
@@ -136,6 +137,150 @@ export function extractContractLetterMetadata(rawText: string, fileName: string)
     detectedClauses,
     suggestedClassification
   };
+}
+
+/**
+ * Parses raw text extracted from a contract PDF into structured ContractClause objects
+ */
+export function parseClausesFromContractText(
+  rawText: string,
+  documentId: string,
+  volumeNumber: string,
+  priorityRank: number = 5
+): ContractClause[] {
+  if (!rawText || !rawText.trim()) return [];
+
+  const clauses: ContractClause[] = [];
+  
+  // Regex to detect clause boundaries:
+  // e.g. "Sub-Clause 8.4 Extension of Time for Completion"
+  // "Clause 20.2 Claims for Payment and EOT"
+  // "PC 8.4 [Extension of Time]"
+  // "8.4 Extension of Time"
+  // "Section 3.1 Contractor General Obligations"
+  // "Article 4 Governing Law"
+  const clauseHeaderRegex = /(?:^|\n)\s*(?:(?:Sub-Clause|Clause|PC|GC|Section|Article)\s+([0-9]{1,2}(?:\.[0-9]{1,2})*|[0-9]{1,2})|([0-9]{1,2}\.[0-9]{1,2}(?:\.[0-9]{1,2})?))\s*[:\-\—\[]?\s*([^\n\r]+)/gi;
+
+  const matches: { index: number; clauseNumber: string; title: string; matchText: string }[] = [];
+  let m: RegExpExecArray | null;
+
+  while ((m = clauseHeaderRegex.exec(rawText)) !== null) {
+    const clauseNum = m[1] || m[2];
+    const rawTitle = m[3]?.trim().replace(/[\]\[\:\-\—]+$/, '').trim() || 'General Provision';
+    if (clauseNum && rawTitle && rawTitle.length < 120) {
+      matches.push({
+        index: m.index,
+        clauseNumber: m[0].trim().startsWith('Sub-Clause') || m[0].trim().startsWith('Clause')
+          ? `Sub-Clause ${clauseNum}`
+          : `Clause ${clauseNum}`,
+        title: rawTitle,
+        matchText: m[0]
+      });
+    }
+  }
+
+  // If matches were found, slice content between matches
+  if (matches.length > 0) {
+    for (let i = 0; i < matches.length; i++) {
+      const current = matches[i];
+      const nextIndex = i + 1 < matches.length ? matches[i + 1].index : rawText.length;
+      const content = rawText.slice(current.index, nextIndex).trim();
+
+      // Categorize
+      const lower = (current.title + ' ' + content).toLowerCase();
+      let category: ContractClause['category'] = 'Obligations';
+      if (/delay|extension of time|eot|milestone|programme|program|time for completion|8\.[1-7]|rate of progress|acceleration/.test(lower)) {
+        category = 'Time & EOT';
+      } else if (/claim|payment|interim payment|ipc|cost|14\.[0-9]|20\.2|financing|interest|price/.test(lower)) {
+        category = 'Payment & Claims';
+      } else if (/variation|instruct|13\.[1-8]|change|adjustment|daywork/.test(lower)) {
+        category = 'Variations';
+      } else if (/risk|insurance|indemnity|force majeure|exceptional event|17\.[0-9]|18\.[0-9]|19\.[0-9]/.test(lower)) {
+        category = 'Risk & Insurance';
+      } else if (/termination|default|dispute|daab|arbitration|15\.[0-9]|16\.[0-9]|21\.[0-9]/.test(lower)) {
+        category = 'Termination & Dispute';
+      } else if (/test|inspection|defect|quality|workmanship|7\.[0-9]|11\.[0-9]/.test(lower)) {
+        category = 'Quality & Testing';
+      }
+
+      // Time bar detection
+      let timeBarDays: number | undefined = undefined;
+      let noticePeriodDays: number | undefined = undefined;
+      const barMatch = content.match(/within\s+([0-9]{1,2})\s+days/i);
+      if (barMatch && barMatch[1]) {
+        const days = parseInt(barMatch[1], 10);
+        noticePeriodDays = days;
+        if (/time-bar|discharged|extinguish|barr|fails to give/i.test(content)) {
+          timeBarDays = days;
+        }
+      }
+      if (!timeBarDays && /20\.2|20\.1/i.test(current.clauseNumber)) {
+        timeBarDays = 28;
+        noticePeriodDays = 28;
+      }
+
+      // Interconnected clauses
+      const interconnectedClauseIds: string[] = [];
+      const refMatches = content.matchAll(/(?:Sub-Clause|Clause)\s*([0-9]{1,2}(?:\.[0-9]{1,2})*)/gi);
+      for (const r of refMatches) {
+        const found = `Sub-Clause ${r[1]}`;
+        if (found !== current.clauseNumber && !interconnectedClauseIds.includes(found)) {
+          interconnectedClauseIds.push(found);
+        }
+      }
+
+      clauses.push({
+        id: `cls-${documentId}-${i + 1}`,
+        documentId,
+        volumeNumber,
+        pageNumber: Math.max(1, Math.floor((current.index / Math.max(1, rawText.length)) * 30) + 1),
+        clauseNumber: current.clauseNumber,
+        title: current.title,
+        content: content.slice(0, 3000),
+        category,
+        interconnectedClauseIds,
+        noticePeriodDays,
+        timeBarDays,
+        priorityRank
+      });
+    }
+  } else {
+    // Fallback: Segment raw text into logical section clauses (e.g. by page break or double-line breaks)
+    const sections = rawText.split(/\n\s*---\s*Page Break\s*---\s*\n|\n\n\n+/).filter(s => s.trim().length > 20);
+    if (sections.length > 0) {
+      sections.forEach((sec, idx) => {
+        const lines = sec.trim().split('\n').map(l => l.trim()).filter(Boolean);
+        const heading = lines[0] && lines[0].length < 100 ? lines[0] : `Section ${idx + 1}`;
+        clauses.push({
+          id: `cls-${documentId}-${idx + 1}`,
+          documentId,
+          volumeNumber,
+          pageNumber: idx + 1,
+          clauseNumber: `Sec ${idx + 1}`,
+          title: heading,
+          content: sec.trim(),
+          category: 'Obligations',
+          interconnectedClauseIds: [],
+          priorityRank
+        });
+      });
+    } else if (rawText.trim()) {
+      clauses.push({
+        id: `cls-${documentId}-1`,
+        documentId,
+        volumeNumber,
+        pageNumber: 1,
+        clauseNumber: 'Sec 1.0',
+        title: 'Document Provisions',
+        content: rawText.trim(),
+        category: 'Obligations',
+        interconnectedClauseIds: [],
+        priorityRank
+      });
+    }
+  }
+
+  return clauses;
 }
 
 /**

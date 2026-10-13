@@ -8,7 +8,7 @@ import {
   ShieldCheck, 
   ChevronDown 
 } from 'lucide-react';
-import { Project } from '../types/contract';
+import { Project, UserProfile } from '../types/contract';
 
 interface NavbarProps {
   projects: Project[];
@@ -22,6 +22,8 @@ interface NavbarProps {
   onSearchChange: (q: string) => void;
   onOpenNewProjectModal: () => void;
   onOpenIngestModal?: () => void;
+  userProfile?: UserProfile;
+  onOpenProfileModal?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -35,7 +37,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   searchQuery,
   onSearchChange,
   onOpenNewProjectModal,
-  onOpenIngestModal
+  onOpenIngestModal,
+  userProfile,
+  onOpenProfileModal
 }) => {
   return (
     <header className="navbar">
@@ -140,7 +144,22 @@ export const Navbar: React.FC<NavbarProps> = ({
           {isDarkMode ? <Sun size={17} color="#fbbf24" /> : <Moon size={17} />}
         </button>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '8px', borderLeft: '1px solid var(--border-subtle)' }}>
+        <div 
+          onClick={onOpenProfileModal}
+          style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '8px', 
+            paddingLeft: '8px', 
+            borderLeft: '1px solid var(--border-subtle)',
+            cursor: onOpenProfileModal ? 'pointer' : 'default',
+            padding: '4px 8px',
+            borderRadius: 'var(--radius-md)',
+            transition: 'background 0.15s ease'
+          }}
+          className="user-profile-btn"
+          title="Click to view & edit your User Profile & Signatory Credentials"
+        >
           <div style={{
             width: '34px',
             height: '34px',
@@ -151,13 +170,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             justifyContent: 'center',
             color: 'white',
             fontWeight: 700,
-            fontSize: '0.8rem'
+            fontSize: '0.8rem',
+            boxShadow: '0 0 10px rgba(59, 130, 246, 0.3)'
           }}>
-            CM
+            {userProfile?.avatarInitials || 'CM'}
           </div>
           <div style={{ lineHeight: 1.2 }}>
-            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)' }}>Lead Contracts Eng.</div>
-            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Commercial & Claims</div>
+            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+              {userProfile?.name || 'Lead Contracts Eng.'}
+            </div>
+            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+              {userProfile?.role || 'Contract Manager'}
+            </div>
           </div>
         </div>
       </div>

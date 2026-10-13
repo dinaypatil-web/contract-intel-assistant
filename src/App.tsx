@@ -1,10 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { Project, IncomingLetterReview, ContractClause } from './types/contract';
-import { mockProjects } from './data/mockProjects';
-import { mockLetters } from './data/mockLetters';
+import { Project, IncomingLetterReview, ContractClause, UserProfile } from './types/contract';
 import { mockAlerts, mockClaims } from './data/mockAlertsAndClaims';
 import { mockTimeline } from './data/mockTimeline';
 import { mockConflicts } from './data/mockConflicts';
+import { 
+  loadUserProfile, 
+  saveUserProfile, 
+  loadProjects, 
+  saveProjects, 
+  loadActiveProjectId, 
+  saveActiveProjectId, 
+  loadLetters, 
+  saveLetters, 
+  loadThemePreference, 
+  saveThemePreference 
+} from './utils/storage';
 
 import { 
   Building2, 
@@ -28,17 +38,28 @@ import { DocumentComparisonView } from './components/DocumentComparison/Document
 import { ReportsView } from './components/Reports/ReportsView';
 import { NewProjectModal } from './components/ProjectWizard/NewProjectModal';
 import { IngestCommunicationModal } from './components/LetterReviewStudio/IngestCommunicationModal';
+import { UserProfileModal } from './components/UserProfile/UserProfileModal';
 
 export const App: React.FC = () => {
-  const [projects, setProjects] = useState<Project[]>(mockProjects);
-  const [activeProject, setActiveProject] = useState<Project | null>(mockProjects[0] || null);
+  const [userProfile, setUserProfile] = useState<UserProfile>(() => loadUserProfile());
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
+  const [projects, setProjects] = useState<Project[]>(() => loadProjects());
+  const [activeProject, setActiveProject] = useState<Project | null>(() => {
+    const loaded = loadProjects();
+    const savedId = loadActiveProjectId();
+    if (savedId) {
+      const found = loaded.find(p => p.id === savedId);
+      if (found) return found;
+    }
+    return loaded[0] || null;
+  });
   const [activeView, setActiveView] = useState<ActiveView>('dashboard');
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => loadThemePreference());
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [chatPrompt, setChatPrompt] = useState<string>('');
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState<boolean>(false);
   const [isIngestModalOpen, setIsIngestModalOpen] = useState<boolean>(false);
-  const [letters, setLetters] = useState<IncomingLetterReview[]>(mockLetters);
+  const [letters, setLetters] = useState<IncomingLetterReview[]>(() => loadLetters());
 
   // Project-isolated data
   const projectLetters = activeProject ? letters.filter(l => l.projectId === activeProject.id) : [];
@@ -51,7 +72,29 @@ export const App: React.FC = () => {
 
   const criticalAlertsCount = projectAlerts.filter(a => a.severity === 'Critical').length;
 
+  // Persist user profile
+  const handleSaveUserProfile = (updated: UserProfile) => {
+    setUserProfile(updated);
+    saveUserProfile(updated);
+  };
+
+  // Sync projects to localStorage
   useEffect(() => {
+    saveProjects(projects);
+  }, [projects]);
+
+  // Sync letters to localStorage
+  useEffect(() => {
+    saveLetters(letters);
+  }, [letters]);
+
+  // Sync active project to localStorage
+  useEffect(() => {
+    saveActiveProjectId(activeProject ? activeProject.id : null);
+  }, [activeProject]);
+
+  useEffect(() => {
+    saveThemePreference(isDarkMode);
     if (isDarkMode) {
       document.documentElement.removeAttribute('data-theme');
     } else {
@@ -62,6 +105,7 @@ export const App: React.FC = () => {
   // Handle Project Change
   const handleSelectProject = (proj: Project) => {
     setActiveProject(proj);
+    saveActiveProjectId(proj.id);
     const newLetters = letters.filter(l => l.projectId === proj.id);
     setActiveLetter(newLetters[0] || null);
   };
@@ -69,18 +113,25 @@ export const App: React.FC = () => {
   const handleUpdateLetter = (newOrUpdated: IncomingLetterReview) => {
     setLetters(prev => {
       const idx = prev.findIndex(l => l.id === newOrUpdated.id);
+      let updated: IncomingLetterReview[];
       if (idx >= 0) {
-        const copy = [...prev];
-        copy[idx] = newOrUpdated;
-        return copy;
+        updated = [...prev];
+        updated[idx] = newOrUpdated;
+      } else {
+        updated = [newOrUpdated, ...prev];
       }
-      return [newOrUpdated, ...prev];
+      saveLetters(updated);
+      return updated;
     });
     setActiveLetter(newOrUpdated);
   };
 
   const handleIngestLetter = (newLetter: IncomingLetterReview) => {
-    setLetters(prev => [newLetter, ...prev]);
+    setLetters(prev => {
+      const updated = [newLetter, ...prev];
+      saveLetters(updated);
+      return updated;
+    });
     setActiveLetter(newLetter);
     setActiveView('letter-review');
     setIsIngestModalOpen(false);
@@ -116,14 +167,31 @@ export const App: React.FC = () => {
           onSearchChange={setSearchQuery}
           onOpenNewProjectModal={() => setIsNewProjectModalOpen(true)}
           onOpenIngestModal={() => setIsIngestModalOpen(true)}
+          userProfile={userProfile}
+          onOpenProfileModal={() => setIsProfileModalOpen(true)}
+        />
+
+        <UserProfileModal
+          isOpen={isProfileModalOpen}
+          onClose={() => setIsProfileModalOpen(false)}
+          userProfile={userProfile}
+          onSaveProfile={handleSaveUserProfile}
         />
 
         <NewProjectModal
           isOpen={isNewProjectModalOpen}
           onClose={() => setIsNewProjectModalOpen(false)}
-          onCreateProject={(newProj) => {
-            setProjects(prev => [newProj, ...prev]);
+          onCreateProject={(newProj, userRole) => {
+            setProjects(prev => {
+              const updated = [newProj, ...prev];
+              saveProjects(updated);
+              return updated;
+            });
             setActiveProject(newProj);
+            saveActiveProjectId(newProj.id);
+            if (userRole && userRole !== userProfile.role) {
+              handleSaveUserProfile({ ...userProfile, role: userRole });
+            }
           }}
         />
 
@@ -252,6 +320,7 @@ export const App: React.FC = () => {
                     onSelectLetter={setActiveLetter}
                     onUpdateLetter={handleUpdateLetter}
                     onOpenIngestModal={() => setIsIngestModalOpen(true)}
+                    userProfile={userProfile}
                   />
                 )}
 

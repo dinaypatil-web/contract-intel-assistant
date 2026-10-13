@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Project, ContractClause, ContractDocument } from '../../types/contract';
 import { 
   Layers, 
@@ -25,6 +25,15 @@ export const HierarchyExplorer: React.FC<HierarchyExplorerProps> = ({
     project.documents[0]?.clauses[0] || null
   );
   const [clauseSearch, setClauseSearch] = useState<string>('');
+  const [viewMode, setViewMode] = useState<'clauses' | 'rawText'>('clauses');
+
+  useEffect(() => {
+    if (project.documents.length > 0) {
+      const doc = project.documents.find(d => d.id === selectedDoc?.id) || project.documents[0];
+      setSelectedDoc(doc);
+      setSelectedClause(doc?.clauses[0] || null);
+    }
+  }, [project.id, project.documents]);
 
   const filteredClauses = selectedDoc?.clauses.filter(c => 
     c.clauseNumber.toLowerCase().includes(clauseSearch.toLowerCase()) ||
@@ -297,6 +306,41 @@ export const HierarchyExplorer: React.FC<HierarchyExplorerProps> = ({
                 </div>
               </div>
             </>
+          ) : selectedDoc?.rawText ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span className="badge badge-notice">{selectedDoc.volumeNumber}</span>
+                    <span className="badge badge-success">Parsed Document Text Layer</span>
+                    {selectedDoc.fileName && (
+                      <span className="badge badge-neutral">{selectedDoc.fileName}</span>
+                    )}
+                  </div>
+                  <h2 style={{ fontSize: '1.25rem', fontWeight: 800, marginTop: '8px' }}>
+                    {selectedDoc.title}
+                  </h2>
+                  <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '4px 0 0' }}>
+                    {selectedDoc.summary}
+                  </p>
+                </div>
+              </div>
+              <div style={{
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-md)',
+                padding: '20px',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '0.82rem',
+                lineHeight: 1.7,
+                color: 'var(--text-primary)',
+                maxHeight: '480px',
+                overflowY: 'auto',
+                whiteSpace: 'pre-wrap'
+              }}>
+                {selectedDoc.rawText}
+              </div>
+            </div>
           ) : (
             <div style={{ textAlign: 'center', padding: '80px 20px', color: 'var(--text-muted)' }}>
               <FileText size={36} style={{ margin: '0 auto 12px', opacity: 0.5 }} />

@@ -4,7 +4,8 @@ import {
   LetterTone, 
   Project, 
   QuestionnaireQuestion, 
-  ResponseMatrixRow 
+  ResponseMatrixRow,
+  UserProfile
 } from '../../types/contract';
 import { 
   FileText, 
@@ -40,6 +41,7 @@ interface LetterReviewStudioProps {
   onSelectLetter?: (letter: IncomingLetterReview) => void;
   onUpdateLetter?: (updated: IncomingLetterReview) => void;
   onOpenIngestModal?: () => void;
+  userProfile?: UserProfile;
 }
 
 export const LetterReviewStudio: React.FC<LetterReviewStudioProps> = ({
@@ -48,7 +50,8 @@ export const LetterReviewStudio: React.FC<LetterReviewStudioProps> = ({
   letters = [],
   onSelectLetter,
   onUpdateLetter,
-  onOpenIngestModal
+  onOpenIngestModal,
+  userProfile
 }) => {
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [selectedTone, setSelectedTone] = useState<LetterTone>('Firm Contractual');
@@ -123,6 +126,12 @@ export const LetterReviewStudio: React.FC<LetterReviewStudioProps> = ({
 
   const replyRef = `${project?.code || 'PRJ'}/RESP/LTR-${Math.floor(1000 + Math.random() * 9000)}`;
 
+  const authorProfileObj = userProfile ? {
+    name: userProfile.name,
+    role: userProfile.role,
+    credentials: userProfile.credentials
+  } : undefined;
+
   // Generate draft if not yet generated or when tone/questions change
   const currentDraftText = customDraft || (letter ? generateFormalContractReply(
     selectedTone,
@@ -133,7 +142,8 @@ export const LetterReviewStudio: React.FC<LetterReviewStudioProps> = ({
     project.contractor,
     project.code,
     questionnaireState,
-    matrixState
+    matrixState,
+    authorProfileObj
   ) : '');
 
   const handleToneChange = (tone: LetterTone) => {
@@ -149,7 +159,8 @@ export const LetterReviewStudio: React.FC<LetterReviewStudioProps> = ({
           project.contractor,
           project.code,
           questionnaireState,
-          matrixState
+          matrixState,
+          authorProfileObj
         )
       );
     }

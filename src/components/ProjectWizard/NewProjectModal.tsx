@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Project, PrecedenceRule, DocumentType } from '../../types/contract';
+import { Project, PrecedenceRule, DocumentType, ContractClause, ContractDocument } from '../../types/contract';
 import { 
   Building2, 
   FolderPlus, 
@@ -15,14 +15,15 @@ import {
   Zap, 
   Lock,
   Loader2,
-  FileCheck
+  FileCheck,
+  Sparkles
 } from 'lucide-react';
-import { extractTextFromPdf, formatFileSize } from '../../utils/pdfParser';
+import { extractTextFromPdf, formatFileSize, parseClausesFromContractText } from '../../utils/pdfParser';
 
 interface NewProjectModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreateProject: (project: Project) => void;
+  onCreateProject: (project: Project, userRole?: string) => void;
 }
 
 export const NewProjectModal: React.FC<NewProjectModalProps> = ({
@@ -47,13 +48,17 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
 
   // Local storage real file selection
   const [selectedFolder, setSelectedFolder] = useState<string>('');
-  const [uploadedFiles, setUploadedFiles] = useState<{ 
-    name: string; 
-    size: string; 
-    type: string; 
-    pages: number; 
-    isPdf: boolean 
-  }[]>([]);
+  interface UploadedContractFile {
+    name: string;
+    size: string;
+    type: string;
+    pages: number;
+    isPdf: boolean;
+    rawText: string;
+    clauses: ContractClause[];
+  }
+
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedContractFile[]>([]);
   const [isParsingFiles, setIsParsingFiles] = useState<boolean>(false);
   const [isDragOverFiles, setIsDragOverFiles] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -71,23 +76,32 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
 
     setIsParsingFiles(true);
     try {
-      const processed = await Promise.all(
-        filesArray.map(async (file) => {
+      const processed: UploadedContractFile[] = await Promise.all(
+        filesArray.map(async (file, idx) => {
           const sizeFormatted = formatFileSize(file.size);
           const lower = file.name.toLowerCase();
           const isPdf = lower.endsWith('.pdf') || file.type === 'application/pdf';
           let docType = 'Contract Document';
           let pages = 1;
+          let extractedText = '';
 
           if (isPdf) {
             try {
               const result = await extractTextFromPdf(file, file.name);
-              pages = result.numPages;
+              pages = result.numPages || 1;
+              extractedText = result.text || '';
               if (result.suggestedClassification && result.suggestedClassification !== 'General Communication') {
                 docType = result.suggestedClassification;
               }
             } catch (err) {
-              console.error('Failed to parse PDF pages:', err);
+              console.error('Failed to parse PDF text/pages:', err);
+            }
+          } else {
+            try {
+              extractedText = await file.text();
+              pages = Math.max(1, Math.ceil(extractedText.length / 2500));
+            } catch (err) {
+              console.error('Failed to read file as text:', err);
             }
           }
 
@@ -103,12 +117,25 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             else if (lower.includes('agreement') || lower.includes('contract')) docType = 'Contract Agreement';
           }
 
+          const tempDocId = `doc-temp-${Date.now()}-${idx}`;
+          const volNumber = `Volume ${uploadedFiles.length + idx + 1}`;
+          const priorityRank = Math.min(10, uploadedFiles.length + idx + 1);
+
+          const parsedClauses = parseClausesFromContractText(
+            extractedText,
+            tempDocId,
+            volNumber,
+            priorityRank
+          );
+
           return {
             name: file.name,
             size: sizeFormatted,
             type: docType,
             pages,
-            isPdf
+            isPdf,
+            rawText: extractedText,
+            clauses: parsedClauses
           };
         })
       );
@@ -119,6 +146,20 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
+    }
+  };
+
+  const handleLoadSamplePdf = async () => {
+    setIsParsingFiles(true);
+    try {
+      const resp = await fetch('/sample-contract.pdf');
+      const blob = await resp.blob();
+      const file = new File([blob], 'Particular_Conditions_FIDIC_2017.pdf', { type: 'application/pdf' });
+      await processIncomingFiles([file]);
+    } catch (err) {
+      console.error('Failed to load sample contract:', err);
+    } finally {
+      setIsParsingFiles(false);
     }
   };
 
@@ -171,6 +212,86 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
         ];
 
         const pId = `proj-${Date.now()}`;
+        
+        // Map uploaded files to ContractDocuments with extracted clauses and rawText
+        // If user didn't upload any files, provide standard baseline FIDIC documents
+        const contractDocuments: ContractDocument[] = uploadedFiles.length > 0 
+          ? uploadedFiles.map((f, idx) => {
+              const docId = `doc-${idx + 1}-${Date.now()}`;
+              const volumeNumber = `Volume ${idx + 1}`;
+              const priorityRank = idx + 1;
+              const docClauses = f.clauses && f.clauses.length > 0
+                ? f.clauses.map(c => ({
+                    ...c,
+                    documentId: docId,
+                    volumeNumber,
+                    priorityRank
+                  }))
+                : parseClausesFromContractText(f.rawText || '', docId, volumeNumber, priorityRank);
+
+              return {
+                id: docId,
+                projectId: pId,
+                volumeNumber,
+                title: f.name.replace(/\.[^/.]+$/, "").replace(/_/g, " "),
+                documentType: f.type as DocumentType,
+                revision: 'Rev. 00 Local',
+                date: commencementDate || new Date().toISOString().split('T')[0],
+                pageCount: f.pages || Math.max(1, Math.ceil(docClauses.length * 1.5)),
+                summary: `Local contract volume parsed from ${f.name} (${f.size}, ${f.pages} pages, ${docClauses.length} parsed clauses)`,
+                rawText: f.rawText || '',
+                fileName: f.name,
+                fileSize: f.size,
+                clauses: docClauses
+              };
+            })
+          : [
+              {
+                id: `doc-1-${Date.now()}`,
+                projectId: pId,
+                volumeNumber: 'Volume 1',
+                title: 'Particular Conditions of Contract',
+                documentType: 'Particular Conditions' as DocumentType,
+                revision: 'Rev. 00 Local',
+                date: commencementDate || new Date().toISOString().split('T')[0],
+                pageCount: 38,
+                summary: 'Particular Conditions defining priority, 28-day notice time-bars, and EOT entitlements.',
+                rawText: 'Sub-Clause 8.4 Extension of Time for Completion\nThe Contractor shall be entitled subject to Sub-Clause 20.2 [Claims for Payment and/or EOT] to an extension of the Time for Completion.\n\nSub-Clause 20.2 Claims for Payment and/or EOT\nNotice shall be given as soon as practicable, and no later than 28 days after the Contractor became aware.',
+                clauses: [
+                  {
+                    id: `cls-pc-8-4-${Date.now()}`,
+                    documentId: `doc-1-${Date.now()}`,
+                    volumeNumber: 'Volume 1',
+                    pageNumber: 12,
+                    clauseNumber: 'Sub-Clause 8.4',
+                    title: 'Extension of Time for Completion',
+                    content: 'The Contractor shall be entitled subject to Sub-Clause 20.2 [Claims for Payment and/or EOT] to an extension of the Time for Completion if and to the extent that completion is or will be delayed by Employer-caused delay, exceptionally adverse climatic conditions, or unforeseeable shortages in personnel or Goods caused by epidemic or governmental actions.',
+                    category: 'Time & EOT',
+                    interconnectedClauseIds: ['Sub-Clause 20.2', 'Sub-Clause 8.5'],
+                    noticePeriodDays: 28,
+                    timeBarDays: 28,
+                    priorityRank: 4
+                  },
+                  {
+                    id: `cls-pc-20-2-${Date.now()}`,
+                    documentId: `doc-1-${Date.now()}`,
+                    volumeNumber: 'Volume 1',
+                    pageNumber: 24,
+                    clauseNumber: 'Sub-Clause 20.2',
+                    title: 'Claims for Payment and/or EOT',
+                    content: 'If the Contractor considers itself entitled to any additional payment under any Clause of these Conditions or otherwise in connection with the Contract, and/or to any extension of the Time for Completion, the Contractor shall submit a Notice to the Engineer, describing the event or circumstance giving rise to the claim. The Notice shall be given as soon as practicable, and no later than 28 days after the Contractor became aware, or should have become aware, of the event or circumstance. If the Contractor fails to give a Notice of Claim within this period of 28 days, the Time for Completion shall not be extended, the Contractor shall not be entitled to additional payment, and the Employer shall be discharged from all liability in connection with the claim.',
+                    category: 'Payment & Claims',
+                    interconnectedClauseIds: ['Sub-Clause 8.4', 'Sub-Clause 20.2.4'],
+                    noticePeriodDays: 28,
+                    timeBarDays: 28,
+                    priorityRank: 4
+                  }
+                ]
+              }
+            ];
+
+        const totalClauses = contractDocuments.reduce((sum, d) => sum + d.clauses.length, 0);
+
         const newProj: Project = {
           id: pId,
           name: projectName || 'Untitled Contract Project',
@@ -185,6 +306,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
           originalCompletionDate: completionDate || '',
           revisedCompletionDate: completionDate || '',
           currentEOTDays: 0,
+          userRole,
           stats: {
             completionPercentage: 0,
             pendingClaimsValue: '$0',
@@ -194,21 +316,10 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             totalVariationsCount: 0
           },
           orderOfPrecedence: defaultPrecedence,
-          documents: uploadedFiles.map((f, idx) => ({
-            id: `doc-${idx + 1}-${Date.now()}`,
-            projectId: pId,
-            volumeNumber: `Volume ${idx + 1}`,
-            title: f.name.replace(/\.[^/.]+$/, "").replace(/_/g, " "),
-            documentType: f.type as DocumentType,
-            revision: 'Rev. 00 Local',
-            date: commencementDate || new Date().toISOString().split('T')[0],
-            pageCount: f.pages || Math.floor(15 + Math.random() * 120),
-            summary: `Local contract volume parsed from ${f.name} (${f.size}, ${f.pages} pages)`,
-            clauses: []
-          }))
+          documents: contractDocuments
         };
 
-        onCreateProject(newProj);
+        onCreateProject(newProj, userRole);
         setIsProcessing(false);
         onClose();
       }, 800);
@@ -452,6 +563,18 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button 
+                    type="button"
+                    className="btn-secondary" 
+                    onClick={handleLoadSamplePdf}
+                    disabled={isParsingFiles}
+                    style={{ fontSize: '0.78rem', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    title="Load sample FIDIC Red Book contract PDF with Clauses 8.4 and 20.2"
+                  >
+                    <Sparkles size={14} color="var(--accent-blue)" />
+                    <span>+ Load Sample FIDIC PDF</span>
+                  </button>
+
                   <input 
                     ref={fileInputRef}
                     type="file" 
@@ -476,7 +599,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
               {isParsingFiles && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', marginBottom: '8px', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', color: 'var(--accent-blue)' }}>
                   <Loader2 size={14} className="spinning" />
-                  <span>Parsing and extracting text layers from PDF volumes...</span>
+                  <span>Parsing and extracting text layers & clauses from PDF volumes...</span>
                 </div>
               )}
 
@@ -516,8 +639,8 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                     <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>
                       Drag & Drop Contract PDFs Here
                     </div>
-                    <div style={{ fontSize: '0.78rem', maxWidth: '420px', margin: '0 auto' }}>
-                      Drop your local contract PDF volumes (Agreement, Particular Conditions, General Conditions, Specs, BOQ, Drawings) or click <strong>+ Add Contract Files</strong> above.
+                    <div style={{ fontSize: '0.78rem', maxWidth: '420px', margin: '0 auto', lineHeight: 1.5 }}>
+                      Drop your local contract PDF volumes (Agreement, Particular Conditions, General Conditions, Specs, BOQ, Drawings) or click <strong>+ Add Contract Files</strong> above, or <strong>+ Load Sample FIDIC PDF</strong>.
                     </div>
                   </div>
                 ) : (
@@ -546,6 +669,11 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                             {file.isPdf && (
                               <span className="badge badge-neutral" style={{ fontSize: '0.68rem', padding: '1px 6px' }}>
                                 PDF • {file.pages} {file.pages === 1 ? 'Page' : 'Pages'}
+                              </span>
+                            )}
+                            {file.clauses.length > 0 && (
+                              <span className="badge badge-success" style={{ fontSize: '0.68rem', padding: '1px 6px' }}>
+                                {file.clauses.length} Clauses Parsed
                               </span>
                             )}
                           </div>
