@@ -40,6 +40,8 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
   // File state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [parsingStatus, setParsingStatus] = useState<string>('');
+  const [ocrExtractedCount, setOcrExtractedCount] = useState<number>(0);
   const [pageCount, setPageCount] = useState<number>(1);
   const [rawText, setRawText] = useState<string>('');
   const [pageDetails, setPageDetails] = useState<DocumentPage[]>([]);
@@ -56,6 +58,8 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
     setSelectedFile(file);
     setErrorMessage(null);
     setIsProcessing(true);
+    setParsingStatus(`Reading "${file.name}"...`);
+    setOcrExtractedCount(0);
 
     const sizeStr = formatFileSize(file.size);
     setFileSizeFormatted(sizeStr);
@@ -84,10 +88,15 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
       let pagesList: DocumentPage[] = [];
 
       if (isPdf) {
-        const result = await extractTextFromPdf(file, file.name);
+        const result = await extractTextFromPdf(file, file.name, (prog) => {
+          setParsingStatus(prog.message);
+        });
         pages = result.numPages || 1;
         extracted = result.text || '';
         pagesList = result.pages || [{ pageNumber: 1, text: extracted }];
+        if (result.ocrPagesCount) {
+          setOcrExtractedCount(result.ocrPagesCount);
+        }
       } else {
         extracted = await file.text();
         const textSections = extracted.split(/\n\s*---\s*Page Break(?:\s*\[Page\s*[0-9]+\])?\s*---\s*\n|\f/).filter(Boolean);
@@ -333,7 +342,7 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
           <div>
             <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>
               {isProcessing 
-                ? 'Reading all pages & extracting clause hierarchy...'
+                ? (parsingStatus || 'Reading all pages & extracting clause hierarchy...')
                 : selectedFile 
                 ? selectedFile.name 
                 : 'Select Contract PDF or Document File'
@@ -342,10 +351,10 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
             <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '2px' }}>
               {selectedFile ? (
                 <span style={{ color: 'var(--status-success)' }}>
-                  {pageCount} {pageCount === 1 ? 'Page' : 'Pages'} recognized &bull; {parsedClauses.length} Clauses indexed &bull; {fileSizeFormatted}
+                  {pageCount} {pageCount === 1 ? 'Page' : 'Pages'} recognized &bull; {parsedClauses.length} Clauses indexed {ocrExtractedCount > 0 ? `• OCR Digitized (${ocrExtractedCount} pages) ` : ''}&bull; {fileSizeFormatted}
                 </span>
               ) : (
-                'Drop PDF (.pdf), Word (.doc, .docx), or Text (.txt). All pages will be extracted client-side.'
+                'Drop PDF (.pdf), Word (.doc, .docx), or Text (.txt). All pages will be extracted client-side with OCR support.'
               )}
             </div>
           </div>

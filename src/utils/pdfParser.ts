@@ -19,10 +19,19 @@ if (typeof (Uint8Array as any).fromHex !== 'function') {
 
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { createWorker, Worker } from 'tesseract.js';
 import { ContractClause, DocumentPage } from '../types/contract';
 
 // Set worker source for Vite bundler
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+
+export interface PdfProgressInfo {
+  currentPage: number;
+  totalPages: number;
+  stage: 'reading' | 'extracting' | 'ocr' | 'complete';
+  message: string;
+  percent: number;
+}
 
 export interface ExtractedPdfData {
   text: string;
@@ -39,6 +48,8 @@ export interface ExtractedPdfData {
   detectedClauses: string[];
   suggestedClassification: string;
   isScannedOrEmpty: boolean;
+  ocrPagesCount?: number;
+  isOcrExtracted?: boolean;
 }
 
 export function formatFileSize(bytes: number): string {
@@ -359,47 +370,315 @@ export function parseClausesFromContractText(
   return clauses;
 }
 
+let sharedOcrWorker: Worker | null = null;
+let sharedOcrWorkerPromise: Promise<Worker | null> | null = null;
+let ocrWorkerIdleTimeout: any = null;
+
 /**
- * Extracts plain text, metadata, and per-page structures from a PDF File or ArrayBuffer
+ * Initializes or retrieves a shared Tesseract.js OCR worker instance.
+ * Automatically leverages pre-cached local WebAssembly and training data.
  */
-export async function extractTextFromPdf(file: File | ArrayBuffer, fileName: string = 'document.pdf'): Promise<ExtractedPdfData> {
-  const bytes = file instanceof File ? file.size : file.byteLength;
-  // Clone or acquire arrayBuffer safely without risking detached buffer issues
-  const arrayBuffer = file instanceof File ? await file.arrayBuffer() : file.slice(0);
+export async function getOcrWorker(
+  onProgress?: (progress: number, status: string) => void
+): Promise<Worker | null> {
+  if (sharedOcrWorker) {
+    if (ocrWorkerIdleTimeout) clearTimeout(ocrWorkerIdleTimeout);
+    ocrWorkerIdleTimeout = setTimeout(() => {
+      terminateOcrWorker();
+    }, 60000); // Keep alive for 60s of inactivity
+    return sharedOcrWorker;
+  }
+
+  if (sharedOcrWorkerPromise) return sharedOcrWorkerPromise;
+
+  sharedOcrWorkerPromise = (async () => {
+    try {
+      const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
+      const baseOrigin = isBrowser ? window.location.origin : '';
+
+      let workerOptions: any = {
+        logger: (m: any) => {
+          if (onProgress && m && typeof m.progress === 'number') {
+            onProgress(m.progress, m.status || 'OCR Processing');
+          }
+        }
+      };
+
+      if (isBrowser) {
+        // Point directly to fast local offline assets in public/tesseract
+        workerOptions = {
+          ...workerOptions,
+          workerPath: `${baseOrigin}/tesseract/worker.min.js`,
+          corePath: `${baseOrigin}/tesseract/tesseract-core-simd-lstm.wasm.js`,
+          langPath: `${baseOrigin}/tesseract`,
+          gzip: true
+        };
+      }
+
+      let worker: Worker;
+      try {
+        worker = await createWorker('eng', 1, workerOptions);
+      } catch (localErr) {
+        console.warn('Local OCR assets failed, falling back to CDN worker:', localErr);
+        worker = await createWorker('eng', 1, {
+          logger: (m: any) => {
+            if (onProgress && m && typeof m.progress === 'number') {
+              onProgress(m.progress, m.status || 'OCR Processing');
+            }
+          }
+        });
+      }
+
+      sharedOcrWorker = worker;
+      if (ocrWorkerIdleTimeout) clearTimeout(ocrWorkerIdleTimeout);
+      ocrWorkerIdleTimeout = setTimeout(() => {
+        terminateOcrWorker();
+      }, 60000);
+
+      return worker;
+    } catch (err) {
+      console.error('Failed to initialize Tesseract OCR worker:', err);
+      return null;
+    } finally {
+      sharedOcrWorkerPromise = null;
+    }
+  })();
+
+  return sharedOcrWorkerPromise;
+}
+
+/**
+ * Clean up Tesseract OCR worker resources when idle.
+ */
+export async function terminateOcrWorker() {
+  if (ocrWorkerIdleTimeout) {
+    clearTimeout(ocrWorkerIdleTimeout);
+    ocrWorkerIdleTimeout = null;
+  }
+  if (sharedOcrWorker) {
+    try {
+      await sharedOcrWorker.terminate();
+    } catch (err) {
+      console.warn('Error terminating OCR worker:', err);
+    }
+    sharedOcrWorker = null;
+  }
+}
+
+/**
+ * Cleans and normalizes raw OCR text, eliminating scanning artifacts and broken lines.
+ */
+export function cleanOcrText(rawText: string): string {
+  if (!rawText) return '';
+  return rawText
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    // Remove isolated single punctuation noise on their own lines
+    .replace(/\n\s*[`~_=\-|\^§]{1,2}\s*\n/g, '\n')
+    // Rejoin words broken across line breaks with hyphens
+    .replace(/([a-zA-Z]{3,})-\n\s*([a-zA-Z]{3,})/g, '$1$2')
+    // Condense excessive spaces while preserving line structure
+    .replace(/[ \t]{2,}/g, ' ')
+    // Normalize excessive consecutive blank lines
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * Extracts and reconstructs digital text from PDF TextContent preserving line and paragraph structure.
+ */
+function extractDigitalTextFromPage(textContent: any): string {
+  if (!textContent || !textContent.items || textContent.items.length === 0) {
+    return '';
+  }
+
+  let fullString = '';
+  let lastY: number | null = null;
+
+  for (const item of textContent.items) {
+    if (!item || typeof item.str !== 'string') continue;
+
+    const currentY = Array.isArray(item.transform) ? item.transform[5] : null;
+    if (lastY !== null && currentY !== null && Math.abs(currentY - lastY) > 4) {
+      fullString += '\n';
+    } else if (fullString.length > 0 && !fullString.endsWith('\n') && !fullString.endsWith(' ') && item.str.length > 0) {
+      fullString += ' ';
+    }
+
+    fullString += item.str;
+
+    if (item.hasEOL) {
+      fullString += '\n';
+    }
+
+    lastY = currentY;
+  }
+
+  return fullString
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n\s*\n\s*\n+/g, '\n\n')
+    .trim();
+}
+
+/**
+ * Renders a PDF page to an offscreen HTML5 canvas at high DPI for maximum OCR recognition fidelity.
+ */
+async function renderPageToCanvas(page: any, scale: number = 2.0): Promise<HTMLCanvasElement | null> {
+  if (typeof document === 'undefined') return null;
 
   try {
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.floor(viewport.width);
+    canvas.height = Math.floor(viewport.height);
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+
+    // Fill solid white background (crucial for PDFs with transparent backdrops)
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    await page.render({
+      canvasContext: ctx,
+      viewport
+    }).promise;
+
+    return canvas;
+  } catch (err) {
+    console.warn('Canvas rendering error for OCR:', err);
+    return null;
+  }
+}
+
+/**
+ * Extracts plain text, metadata, and per-page structures from a PDF File or ArrayBuffer.
+ * Automatically runs multi-core client-side OCR on scanned pages or visual graphics.
+ */
+export async function extractTextFromPdf(
+  file: File | ArrayBuffer,
+  fileName: string = 'document.pdf',
+  onProgress?: (progress: PdfProgressInfo) => void
+): Promise<ExtractedPdfData> {
+  const bytes = file instanceof File ? file.size : file.byteLength;
+  const arrayBuffer = file instanceof File ? await file.arrayBuffer() : file.slice(0);
+
+  const isBrowser = typeof window !== 'undefined';
+  const baseOrigin = isBrowser ? window.location.origin : '';
+
+  try {
+    if (onProgress) {
+      onProgress({
+        currentPage: 0,
+        totalPages: 1,
+        stage: 'reading',
+        message: `Loading PDF structure for "${fileName}"...`,
+        percent: 5
+      });
+    }
+
     const loadingTask = pdfjsLib.getDocument({
       data: new Uint8Array(arrayBuffer),
       useWorkerFetch: false,
-      useSystemFonts: true
+      useSystemFonts: true,
+      cMapUrl: isBrowser ? `${baseOrigin}/pdfjs/cmaps/` : undefined,
+      cMapPacked: true,
+      standardFontDataUrl: isBrowser ? `${baseOrigin}/pdfjs/standard_fonts/` : undefined,
     });
 
     const pdf = await loadingTask.promise;
     const numPages = pdf.numPages || 1;
     const pageRecords: DocumentPage[] = [];
+    let ocrPagesCount = 0;
 
     for (let i = 1; i <= numPages; i++) {
+      if (onProgress) {
+        onProgress({
+          currentPage: i,
+          totalPages: numPages,
+          stage: 'extracting',
+          message: `Inspecting page ${i} of ${numPages}...`,
+          percent: Math.round(((i - 0.7) / numPages) * 100)
+        });
+      }
+
       try {
         const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        
-        const pageString = textContent.items
-          .map((item: any) => (item && typeof item.str === 'string' ? item.str : ''))
-          .join(' ')
-          .replace(/\s+/g, ' ')
-          .trim();
+        let pageString = '';
+
+        try {
+          const textContent = await page.getTextContent();
+          pageString = extractDigitalTextFromPage(textContent);
+        } catch (tcErr) {
+          console.warn(`Text content extraction warning for page ${i}:`, tcErr);
+        }
+
+        let isPageOcr = false;
+
+        // If digital text is missing or extremely sparse (< 25 characters), run OCR on rendered canvas
+        if (pageString.length < 25) {
+          if (onProgress) {
+            onProgress({
+              currentPage: i,
+              totalPages: numPages,
+              stage: 'ocr',
+              message: `Digitizing scanned page ${i} of ${numPages} via OCR engine...`,
+              percent: Math.round(((i - 0.5) / numPages) * 100)
+            });
+          }
+
+          try {
+            const canvas = await renderPageToCanvas(page, 2.0);
+            if (canvas) {
+              const worker = await getOcrWorker((progress, status) => {
+                if (onProgress && typeof progress === 'number') {
+                  onProgress({
+                    currentPage: i,
+                    totalPages: numPages,
+                    stage: 'ocr',
+                    message: `OCR Page ${i}/${numPages}: ${status} (${Math.round(progress * 100)}%)`,
+                    percent: Math.round(((i - 1 + progress) / numPages) * 100)
+                  });
+                }
+              });
+
+              if (worker) {
+                const ret = await worker.recognize(canvas);
+                const recognized = cleanOcrText(ret?.data?.text || '');
+                if (recognized.length > 5) {
+                  pageString = recognized;
+                  isPageOcr = true;
+                  ocrPagesCount++;
+                }
+              }
+            }
+          } catch (ocrErr) {
+            console.warn(`OCR failed for page ${i}:`, ocrErr);
+          }
+        }
 
         pageRecords.push({
           pageNumber: i,
-          text: pageString || `[Page ${i} - Scanned or Visual Graphics]`
+          text: pageString || `[Page ${i} - Scanned or Visual Graphics / No Text Detected]`,
+          isOcr: isPageOcr
         });
       } catch (pageErr) {
         console.warn(`Warning: failed to extract text from page ${i}:`, pageErr);
         pageRecords.push({
           pageNumber: i,
-          text: `[Page ${i} - Text extraction unavailable]`
+          text: `[Page ${i} - Text extraction unavailable]`,
+          isOcr: false
         });
       }
+    }
+
+    if (onProgress) {
+      onProgress({
+        currentPage: numPages,
+        totalPages: numPages,
+        stage: 'complete',
+        message: `Parsed ${numPages} pages (${ocrPagesCount} scanned pages digitized via OCR).`,
+        percent: 100
+      });
     }
 
     const fullText = pageRecords
@@ -407,7 +686,10 @@ export async function extractTextFromPdf(file: File | ArrayBuffer, fileName: str
       .join('\n\n')
       .trim();
 
-    const totalExtractedLength = pageRecords.reduce((sum, p) => sum + (p.text.includes('[Page') ? 0 : p.text.length), 0);
+    const totalExtractedLength = pageRecords.reduce(
+      (sum, p) => sum + (p.text.includes('No Text Detected') || p.text.includes('unavailable') ? 0 : p.text.length),
+      0
+    );
     const isScannedOrEmpty = totalExtractedLength < 30;
 
     const extracted = extractContractLetterMetadata(fullText, fileName);
@@ -426,7 +708,9 @@ export async function extractTextFromPdf(file: File | ArrayBuffer, fileName: str
       recipient: extracted.recipient,
       detectedClauses: extracted.detectedClauses,
       suggestedClassification: extracted.suggestedClassification,
-      isScannedOrEmpty
+      isScannedOrEmpty,
+      ocrPagesCount,
+      isOcrExtracted: ocrPagesCount > 0
     };
   } catch (err: any) {
     console.error('Error parsing PDF with pdfjsLib:', err);
@@ -436,11 +720,9 @@ export async function extractTextFromPdf(file: File | ArrayBuffer, fileName: str
       const decoder = new TextDecoder('latin1');
       const rawStr = decoder.decode(new Uint8Array(arrayBuffer));
       
-      // Determine page count via /Type /Page occurrences in PDF dictionary
       const pageTypeMatches = rawStr.match(/\/Type\s*\/Page\b/g);
       const estimatedPages = Math.max(1, pageTypeMatches ? pageTypeMatches.length : 1);
 
-      // Look for text streams in PDF between BT and ET
       const textSnippets: string[] = [];
       const btMatches = rawStr.matchAll(/BT[\s\S]*?ET/g);
       for (const match of btMatches) {
@@ -455,7 +737,6 @@ export async function extractTextFromPdf(file: File | ArrayBuffer, fileName: str
       const fallbackText = textSnippets.join(' ').trim();
       const extracted = extractContractLetterMetadata(fallbackText, fileName);
 
-      // Split fallback text across estimated pages
       const fallbackPages: DocumentPage[] = [];
       if (estimatedPages > 1 && fallbackText) {
         const chunkSize = Math.max(100, Math.ceil(fallbackText.length / estimatedPages));
@@ -464,13 +745,15 @@ export async function extractTextFromPdf(file: File | ArrayBuffer, fileName: str
           const chunk = fallbackText.slice(start, start + chunkSize).trim();
           fallbackPages.push({
             pageNumber: p,
-            text: chunk || `[Page ${p}]`
+            text: chunk || `[Page ${p}]`,
+            isOcr: false
           });
         }
       } else {
         fallbackPages.push({
           pageNumber: 1,
-          text: fallbackText || `[Document: ${fileName}]`
+          text: fallbackText || `[Document: ${fileName}]`,
+          isOcr: false
         });
       }
 
@@ -492,20 +775,24 @@ export async function extractTextFromPdf(file: File | ArrayBuffer, fileName: str
         recipient: extracted.recipient,
         detectedClauses: extracted.detectedClauses,
         suggestedClassification: extracted.suggestedClassification,
-        isScannedOrEmpty: fallbackText.length < 30
+        isScannedOrEmpty: fallbackText.length < 30,
+        ocrPagesCount: 0,
+        isOcrExtracted: false
       };
     } catch (fallbackErr) {
       console.error('Fallback PDF decoding failed:', fallbackErr);
       return {
         text: `[Document: ${fileName}]\n\n(PDF format could not be decoded. Please enter text manually or attach unencrypted PDF.)`,
         numPages: 1,
-        pages: [{ pageNumber: 1, text: `[Document: ${fileName}]` }],
+        pages: [{ pageNumber: 1, text: `[Document: ${fileName}]`, isOcr: false }],
         fileName,
         fileSizeBytes: bytes,
         fileSizeFormatted: formatFileSize(bytes),
         detectedClauses: [],
         suggestedClassification: 'Contract Document',
-        isScannedOrEmpty: true
+        isScannedOrEmpty: true,
+        ocrPagesCount: 0,
+        isOcrExtracted: false
       };
     }
   }

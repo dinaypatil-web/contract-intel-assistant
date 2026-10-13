@@ -57,10 +57,12 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
     isPdf: boolean;
     rawText: string;
     clauses: ContractClause[];
+    ocrPagesCount?: number;
   }
 
   const [uploadedFiles, setUploadedFiles] = useState<UploadedContractFile[]>([]);
   const [isParsingFiles, setIsParsingFiles] = useState<boolean>(false);
+  const [parsingStatusText, setParsingStatusText] = useState<string>('');
   const [isDragOverFiles, setIsDragOverFiles] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -76,6 +78,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
     if (filesArray.length === 0) return;
 
     setIsParsingFiles(true);
+    setParsingStatusText(`Loading ${filesArray.length} document(s)...`);
     try {
       const processed: UploadedContractFile[] = await Promise.all(
         filesArray.map(async (file, idx) => {
@@ -86,13 +89,19 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
           let pages = 1;
           let extractedText = '';
           let pageDetails: DocumentPage[] = [];
+          let fileOcrPages = 0;
 
           if (isPdf) {
             try {
-              const result = await extractTextFromPdf(file, file.name);
+              const result = await extractTextFromPdf(file, file.name, (prog) => {
+                setParsingStatusText(`[${file.name}] ${prog.message}`);
+              });
               pages = result.numPages || (result.pages ? result.pages.length : 1);
               extractedText = result.text || '';
               pageDetails = result.pages || [{ pageNumber: 1, text: extractedText }];
+              if (result.ocrPagesCount) {
+                fileOcrPages = result.ocrPagesCount;
+              }
               if (result.suggestedClassification && result.suggestedClassification !== 'General Communication') {
                 docType = result.suggestedClassification;
               }
@@ -152,7 +161,8 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             pageDetails,
             isPdf,
             rawText: extractedText,
-            clauses: parsedClauses
+            clauses: parsedClauses,
+            ocrPagesCount: fileOcrPages
           };
         })
       );
@@ -703,7 +713,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
               {isParsingFiles && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', marginBottom: '8px', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', color: 'var(--accent-blue)' }}>
                   <Loader2 size={14} className="spinning" />
-                  <span>Parsing and extracting text layers & clauses from PDF volumes...</span>
+                  <span>{parsingStatusText || 'Parsing and extracting text layers & clauses from PDF volumes...'}</span>
                 </div>
               )}
 
@@ -776,6 +786,11 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                             {file.clauses.length > 0 && (
                               <span className="badge badge-success" style={{ fontSize: '0.68rem', padding: '1px 6px' }}>
                                 {file.clauses.length} Clauses Parsed
+                              </span>
+                            )}
+                            {file.ocrPagesCount !== undefined && file.ocrPagesCount > 0 && (
+                              <span className="badge badge-notice" style={{ fontSize: '0.68rem', padding: '1px 6px' }}>
+                                OCR Digitized ({file.ocrPagesCount} {file.ocrPagesCount === 1 ? 'Page' : 'Pages'})
                               </span>
                             )}
                           </div>

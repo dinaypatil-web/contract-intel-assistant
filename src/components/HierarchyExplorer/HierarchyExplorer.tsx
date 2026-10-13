@@ -407,6 +407,11 @@ export const HierarchyExplorer: React.FC<HierarchyExplorerProps> = ({
                       <span style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <FileText size={13} />
                         <span>Page {page.pageNumber}</span>
+                        {page.isOcr && (
+                          <span className="badge badge-notice" style={{ fontSize: '0.62rem', padding: '1px 5px' }}>
+                            OCR
+                          </span>
+                        )}
                       </span>
                       {clausesOnPage.length > 0 && (
                         <span className="badge badge-success" style={{ fontSize: '0.65rem', padding: '1px 6px' }}>
@@ -628,6 +633,11 @@ export const HierarchyExplorer: React.FC<HierarchyExplorerProps> = ({
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span className="badge badge-notice">{selectedDoc?.volumeNumber}</span>
                         <span className="badge badge-success">Page {currentPageIndex} of {totalPages}</span>
+                        {activePageData?.isOcr && (
+                          <span className="badge badge-notice" style={{ background: 'rgba(99, 102, 241, 0.2)', color: 'var(--accent-indigo)', borderColor: 'rgba(99, 102, 241, 0.4)' }}>
+                            OCR Digitized
+                          </span>
+                        )}
                         {selectedDoc?.fileName && (
                           <span className="badge badge-neutral">{selectedDoc.fileName}</span>
                         )}

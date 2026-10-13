@@ -41,11 +41,14 @@ export const IngestCommunicationModal: React.FC<IngestCommunicationModalProps> =
 
   // PDF processing states
   const [isProcessingPdf, setIsProcessingPdf] = useState<boolean>(false);
+  const [processingStatus, setProcessingStatus] = useState<string>('');
   const [pdfMeta, setPdfMeta] = useState<{
     pageCount: number;
     sizeFormatted: string;
     detectedClauses: string[];
     isScannedOrEmpty: boolean;
+    isOcrExtracted?: boolean;
+    ocrPagesCount?: number;
   } | null>(null);
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -61,20 +64,25 @@ export const IngestCommunicationModal: React.FC<IngestCommunicationModalProps> =
 
     if (lowerName.endsWith('.pdf') || file.type === 'application/pdf') {
       setIsProcessingPdf(true);
+      setProcessingStatus(`Analyzing "${file.name}"...`);
       try {
-        const result = await extractTextFromPdf(file, file.name);
+        const result = await extractTextFromPdf(file, file.name, (prog) => {
+          setProcessingStatus(prog.message);
+        });
 
         setPdfMeta({
           pageCount: result.numPages,
           sizeFormatted: result.fileSizeFormatted,
           detectedClauses: result.detectedClauses,
-          isScannedOrEmpty: result.isScannedOrEmpty
+          isScannedOrEmpty: result.isScannedOrEmpty,
+          isOcrExtracted: result.isOcrExtracted,
+          ocrPagesCount: result.ocrPagesCount
         });
 
         if (result.text && result.text.trim()) {
           setLetterText(result.text);
         } else {
-          setLetterText(`[Uploaded PDF: ${file.name} - ${result.numPages} Pages]\n\n(No embedded text layer detected. This appears to be a scanned document. Please paste or enter the key letter content below for contractual analysis.)`);
+          setLetterText(`[Uploaded PDF: ${file.name} - ${result.numPages} Pages]\n\n(No text could be extracted. Please paste or enter the key letter content below for contractual analysis.)`);
         }
 
         // Auto-populate extracted metadata if available
@@ -560,7 +568,7 @@ Dear Sir,
                 
                 <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                   {isProcessingPdf 
-                    ? 'Extracting multi-page text layer, detecting clauses, and indexing metadata client-side...'
+                    ? (processingStatus || 'Extracting multi-page text layer, detecting clauses, and indexing metadata client-side...')
                     : attachedFileName && pdfMeta
                     ? `${pdfMeta.pageCount} Pages • ${pdfMeta.sizeFormatted} • Zero cloud leakage (100% on-device)`
                     : 'Supports PDF (.pdf), Word (.doc, .docx), and plain text (.txt). Automatically extracts metadata and letter text.'
@@ -624,12 +632,22 @@ Dear Sir,
             </div>
           )}
 
-          {/* Warning banner for scanned PDF */}
-          {pdfMeta && pdfMeta.isScannedOrEmpty && (
+          {/* Success banner if OCR digitized */}
+          {pdfMeta && pdfMeta.isOcrExtracted && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(99, 102, 241, 0.12)', border: '1px solid rgba(99, 102, 241, 0.35)', borderRadius: 'var(--radius-sm)', padding: '8px 12px', fontSize: '0.76rem', color: 'var(--accent-indigo)' }}>
+              <CheckCircle2 size={15} color="var(--accent-indigo)" />
+              <span>
+                <strong>OCR Engine Digitized:</strong> Successfully recovered letter text from {pdfMeta.ocrPagesCount} scanned page(s).
+              </span>
+            </div>
+          )}
+
+          {/* Warning banner for scanned PDF without text */}
+          {pdfMeta && pdfMeta.isScannedOrEmpty && !pdfMeta.isOcrExtracted && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--status-warning-bg)', border: '1px solid var(--status-warning-border)', borderRadius: 'var(--radius-sm)', padding: '8px 12px', fontSize: '0.76rem', color: 'var(--status-warning)' }}>
               <AlertTriangle size={15} />
               <span>
-                <strong>Scanned PDF Detected:</strong> Minimal embedded text was found. Metadata was indexed, but please review or paste the letter body text below.
+                <strong>Scanned PDF Detected:</strong> Minimal text was recognized. Please review or paste the letter body text below.
               </span>
             </div>
           )}

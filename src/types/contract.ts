@@ -47,6 +47,7 @@ export interface DocumentPage {
   pageNumber: number;
   text: string;
   clauseCount?: number;
+  isOcr?: boolean;
 }
 
 export interface ContractDocument {
