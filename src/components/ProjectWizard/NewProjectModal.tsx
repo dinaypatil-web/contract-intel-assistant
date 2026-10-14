@@ -18,7 +18,7 @@ import {
   FileCheck,
   Sparkles
 } from 'lucide-react';
-import { extractTextFromPdf, formatFileSize, parseClausesFromContractText } from '../../utils/pdfParser';
+import { extractTextFromPdf, formatFileSize, parseClausesFromContractText, isImageFile } from '../../utils/pdfParser';
 
 interface NewProjectModalProps {
   isOpen: boolean;
@@ -58,6 +58,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
     rawText: string;
     clauses: ContractClause[];
     ocrPagesCount?: number;
+    images?: string[];
   }
 
   const [uploadedFiles, setUploadedFiles] = useState<UploadedContractFile[]>([]);
@@ -85,13 +86,15 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
           const sizeFormatted = formatFileSize(file.size);
           const lower = file.name.toLowerCase();
           const isPdf = lower.endsWith('.pdf') || file.type === 'application/pdf';
+          const isImg = isImageFile(file);
           let docType = 'Contract Document';
           let pages = 1;
           let extractedText = '';
           let pageDetails: DocumentPage[] = [];
           let fileOcrPages = 0;
+          let fileImages: string[] = [];
 
-          if (isPdf) {
+          if (isPdf || isImg) {
             try {
               const result = await extractTextFromPdf(file, file.name, (prog) => {
                 setParsingStatusText(`[${file.name}] ${prog.message}`);
@@ -102,11 +105,14 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
               if (result.ocrPagesCount) {
                 fileOcrPages = result.ocrPagesCount;
               }
+              if (result.images && result.images.length > 0) {
+                fileImages = result.images;
+              }
               if (result.suggestedClassification && result.suggestedClassification !== 'General Communication') {
                 docType = result.suggestedClassification;
               }
             } catch (err) {
-              console.error('Failed to parse PDF text/pages:', err);
+              console.error('Failed to parse PDF/Image text/pages:', err);
               pageDetails = [{ pageNumber: 1, text: `[Document: ${file.name}]` }];
             }
           } else {
@@ -162,7 +168,8 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             isPdf,
             rawText: extractedText,
             clauses: parsedClauses,
-            ocrPagesCount: fileOcrPages
+            ocrPagesCount: fileOcrPages,
+            images: fileImages.length > 0 ? fileImages : undefined
           };
         })
       );
@@ -344,7 +351,8 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                 pages: f.pageDetails || [],
                 fileName: f.name,
                 fileSize: f.size,
-                clauses: docClauses
+                clauses: docClauses,
+                images: f.images && f.images.length > 0 ? f.images : undefined
               };
             })
           : [
@@ -694,7 +702,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                     type="file" 
                     id="local-contract-files" 
                     multiple 
-                    accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,application/pdf" 
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.png,.jpg,.jpeg,.webp,.bmp,.tiff,image/*,application/pdf" 
                     onChange={handleFileSelection}
                     style={{ display: 'none' }}
                   />

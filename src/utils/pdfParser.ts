@@ -50,6 +50,14 @@ export interface ExtractedPdfData {
   isScannedOrEmpty: boolean;
   ocrPagesCount?: number;
   isOcrExtracted?: boolean;
+  images?: string[]; // Extracted contract images, drawings, site photos, stamps
+}
+
+export function isImageFile(fileOrName: File | string | null | undefined): boolean {
+  if (!fileOrName) return false;
+  const name = typeof fileOrName === 'string' ? fileOrName : fileOrName.name || '';
+  const type = typeof fileOrName === 'object' && fileOrName.type ? fileOrName.type : '';
+  return type.startsWith('image/') || /\.(png|jpe?g|webp|bmp|tiff|svg|gif)$/i.test(name);
 }
 
 export function formatFileSize(bytes: number): string {
@@ -903,9 +911,318 @@ async function renderPageToCanvas(page: any, scale: number = 1.35): Promise<HTML
 }
 
 /**
+ * Extracts embedded images and drawings from a PDF page using PDF.js operator list
+ * and object cache, with size thresholding to ignore tiny spacer/bullet pixels.
+ */
+export async function extractImagesFromPdfPage(
+  page: any,
+  maxImages: number = 2
+): Promise<string[]> {
+  const images: string[] = [];
+  if (typeof document === 'undefined' || !page) return images;
+
+  try {
+    const ops = await page.getOperatorList();
+    if (!ops || !ops.fnArray || !ops.argsArray) return images;
+
+    const { fnArray, argsArray } = ops;
+    const imgObjIds: string[] = [];
+
+    const OPS = (pdfjsLib as any).OPS || {};
+    const paintImageOps = [
+      OPS.paintImageXObject,
+      OPS.paintInlineImageXObject,
+      OPS.paintImageMaskXObject
+    ].filter(Boolean);
+
+    for (let i = 0; i < fnArray.length; i++) {
+      if (paintImageOps.includes(fnArray[i])) {
+        const arg = argsArray[i]?.[0];
+        if (typeof arg === 'string' && !imgObjIds.includes(arg)) {
+          imgObjIds.push(arg);
+          if (imgObjIds.length >= maxImages) break;
+        }
+      }
+    }
+
+    for (const objId of imgObjIds) {
+      try {
+        const imgObj = await new Promise<any>((resolve) => {
+          try {
+            if (page.objs && typeof page.objs.has === 'function' && page.objs.has(objId)) {
+              resolve(page.objs.get(objId));
+            } else if (page.objs && typeof page.objs.get === 'function') {
+              const timer = setTimeout(() => resolve(null), 1200);
+              page.objs.get(objId, (resolvedObj: any) => {
+                clearTimeout(timer);
+                resolve(resolvedObj);
+              });
+            } else {
+              resolve(null);
+            }
+          } catch {
+            resolve(null);
+          }
+        });
+
+        if (!imgObj) continue;
+
+        const width = imgObj.width;
+        const height = imgObj.height;
+        // Ignore tiny bullet points, lines, or spacer pixels (< 70px)
+        if (!width || !height || width < 70 || height < 70) continue;
+
+        const maxCanvasDim = 1200;
+        const cScale = Math.min(1, maxCanvasDim / Math.max(width, height));
+        const outW = Math.max(1, Math.floor(width * cScale));
+        const outH = Math.max(1, Math.floor(height * cScale));
+
+        const canvas = document.createElement('canvas');
+        canvas.width = outW;
+        canvas.height = outH;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) continue;
+
+        if (imgObj.bitmap && typeof ctx.drawImage === 'function') {
+          ctx.drawImage(imgObj.bitmap, 0, 0, outW, outH);
+          images.push(canvas.toDataURL('image/jpeg', 0.82));
+        } else if (imgObj.data) {
+          const rawData = imgObj.data;
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = width;
+          tempCanvas.height = height;
+          const tempCtx = tempCanvas.getContext('2d');
+          if (!tempCtx) continue;
+
+          const imgData = tempCtx.createImageData(width, height);
+          if (rawData.length === width * height * 4) {
+            imgData.data.set(rawData);
+          } else if (rawData.length === width * height * 3) {
+            let s = 0;
+            let d = 0;
+            for (let p = 0; p < width * height; p++) {
+              imgData.data[d] = rawData[s];
+              imgData.data[d + 1] = rawData[s + 1];
+              imgData.data[d + 2] = rawData[s + 2];
+              imgData.data[d + 3] = 255;
+              s += 3;
+              d += 4;
+            }
+          } else if (rawData.length === width * height) {
+            // Grayscale
+            let d = 0;
+            for (let p = 0; p < width * height; p++) {
+              const val = rawData[p];
+              imgData.data[d] = val;
+              imgData.data[d + 1] = val;
+              imgData.data[d + 2] = val;
+              imgData.data[d + 3] = 255;
+              d += 4;
+            }
+          }
+
+          tempCtx.putImageData(imgData, 0, 0);
+          ctx.drawImage(tempCanvas, 0, 0, outW, outH);
+          images.push(canvas.toDataURL('image/jpeg', 0.82));
+        }
+      } catch (imgErr) {
+        console.warn(`Could not extract image object ${objId}:`, imgErr);
+      }
+    }
+  } catch (err) {
+    console.warn('PDF image extraction notice:', err);
+  }
+
+  return images;
+}
+
+/**
+ * Extracts and recognizes text, tables, and visual structure directly from an Image contract file
+ * (.png, .jpg, .jpeg, .webp, .bmp, etc.) using client-side OCR and neural text recognition.
+ */
+export async function extractTextAndImagesFromImageFile(
+  file: File | ArrayBuffer,
+  fileName: string = 'image.png',
+  onProgress?: (progress: PdfProgressInfo) => void,
+  options?: OcrOptions
+): Promise<ExtractedPdfData> {
+  const bytes = file instanceof File ? file.size : file.byteLength;
+  const mode = options?.mode || 'balanced';
+
+  if (onProgress) {
+    onProgress({
+      currentPage: 1,
+      totalPages: 1,
+      stage: 'reading',
+      message: `Reading contract image "${fileName}"...`,
+      percent: 15
+    });
+  }
+
+  // Convert File / ArrayBuffer to data URL
+  let dataUrl = '';
+  if (file instanceof File) {
+    dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  } else {
+    const blob = new Blob([file]);
+    dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  // Decode into Image element
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error(`Failed to decode image file "${fileName}"`));
+    img.src = dataUrl;
+  });
+
+  const origWidth = img.naturalWidth || img.width;
+  const origHeight = img.naturalHeight || img.height;
+
+  // Scale image to optimal DPI dimensions (~2000-2400px) for Tesseract LSTM text recognition
+  const maxDim = Math.max(origWidth, origHeight);
+  const targetDim = mode === 'quality' ? 2600 : mode === 'fast' ? 1750 : 2200;
+  const scale = maxDim > 0 && maxDim < targetDim ? targetDim / maxDim : 1.0;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.floor(origWidth * scale);
+  canvas.height = Math.floor(origHeight * scale);
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    preprocessCanvasForOcr(canvas);
+  }
+
+  if (onProgress) {
+    onProgress({
+      currentPage: 1,
+      totalPages: 1,
+      stage: 'ocr',
+      message: `⚡ OCR recognizing contract text and tables from image...`,
+      percent: 45
+    });
+  }
+
+  let recognizedText = '';
+  if (mode !== 'skip') {
+    try {
+      const workers = await getOcrWorkerPool(1);
+      if (workers.length > 0) {
+        const ocrPromise = workers[0].recognize(
+          canvas,
+          {},
+          {
+            text: true,
+            blocks: false,
+            layoutBlocks: false,
+            hocr: false,
+            tsv: false,
+            box: false,
+            unlv: false,
+            osd: false
+          }
+        );
+        const ret = await withTimeout(
+          ocrPromise,
+          options?.pageTimeoutMs || 30000,
+          `OCR recognition on image "${fileName}"`
+        );
+        recognizedText = cleanOcrText(ret?.data?.text || '');
+      }
+    } catch (ocrErr) {
+      console.warn(`OCR error on image file "${fileName}":`, ocrErr);
+    }
+  }
+
+  // Create compressed preview thumbnail dataUrl
+  let previewDataUrl = dataUrl;
+  if (dataUrl.length > 2500000 || canvas.width > 1600) {
+    const previewCanvas = document.createElement('canvas');
+    const pScale = Math.min(1.0, 1400 / Math.max(origWidth, origHeight));
+    previewCanvas.width = Math.floor(origWidth * pScale);
+    previewCanvas.height = Math.floor(origHeight * pScale);
+    const pCtx = previewCanvas.getContext('2d');
+    if (pCtx) {
+      pCtx.drawImage(img, 0, 0, previewCanvas.width, previewCanvas.height);
+      previewDataUrl = previewCanvas.toDataURL('image/jpeg', 0.85);
+    }
+  }
+
+  const lower = fileName.toLowerCase();
+  const extracted = extractContractLetterMetadata(recognizedText, fileName);
+
+  let suggestedClassification = extracted.suggestedClassification;
+  if (
+    lower.includes('draw') ||
+    lower.includes('site') ||
+    lower.includes('plan') ||
+    lower.includes('gad') ||
+    lower.includes('layout') ||
+    lower.includes('schematic') ||
+    lower.includes('photo')
+  ) {
+    suggestedClassification = 'Drawings';
+  }
+
+  const pageText = recognizedText || `[Image: ${fileName} - Visual Contract Document / Drawing (${origWidth}x${origHeight}px)]`;
+  const pageRecord: DocumentPage = {
+    pageNumber: 1,
+    text: pageText,
+    isOcr: true,
+    images: [previewDataUrl]
+  };
+
+  if (onProgress) {
+    onProgress({
+      currentPage: 1,
+      totalPages: 1,
+      stage: 'complete',
+      message: `Recognized image "${fileName}" (${origWidth}x${origHeight}px) & digitized ${recognizedText.length > 0 ? recognizedText.split(/\s+/).length + ' words' : 'visual content'}.`,
+      percent: 100
+    });
+  }
+
+  const fullText = `--- Page Break [Page 1] ---\n\n${pageText}`;
+
+  return {
+    text: fullText,
+    numPages: 1,
+    pages: [pageRecord],
+    fileName,
+    fileSizeBytes: bytes,
+    fileSizeFormatted: formatFileSize(bytes),
+    refNumber: extracted.refNumber,
+    date: extracted.date,
+    subject: extracted.subject,
+    sender: extracted.sender,
+    recipient: extracted.recipient,
+    detectedClauses: extracted.detectedClauses,
+    suggestedClassification,
+    isScannedOrEmpty: !recognizedText || recognizedText.length < 20,
+    ocrPagesCount: 1,
+    isOcrExtracted: true,
+    images: [previewDataUrl]
+  };
+}
+
+/**
  * Extracts plain text, metadata, and per-page structures from a PDF File or ArrayBuffer.
  * Automatically runs multi-core client-side OCR on scanned pages or visual graphics
  * using adaptive scaling, preprocessed contrast enhancement, and worker pooling.
+ * Also extracts embedded drawings, site photos, diagrams, and visual page snapshots.
  */
 export async function extractTextFromPdf(
   file: File | ArrayBuffer,
@@ -913,6 +1230,11 @@ export async function extractTextFromPdf(
   onProgress?: (progress: PdfProgressInfo) => void,
   options?: OcrOptions
 ): Promise<ExtractedPdfData> {
+  // If the uploaded file is an image file, route to image extractor
+  if ((file instanceof File && isImageFile(file)) || isImageFile(fileName)) {
+    return extractTextAndImagesFromImageFile(file, fileName, onProgress, options);
+  }
+
   const bytes = file instanceof File ? file.size : file.byteLength;
   const arrayBuffer = file instanceof File ? await file.arrayBuffer() : file.slice(0);
 
@@ -943,7 +1265,7 @@ export async function extractTextFromPdf(
     const pdf = await loadingTask.promise;
     const numPages = pdf.numPages || 1;
 
-    // Step 1: Rapid pass across all pages to extract digital text (takes only ~20-50ms)
+    // Step 1: Rapid pass across all pages to extract digital text and recognize embedded images
     const intermediatePages: {
       pageNumber: number;
       pageObj: any;
@@ -951,6 +1273,7 @@ export async function extractTextFromPdf(
       needsOcr: boolean;
       isOcr: boolean;
     }[] = [];
+    const pageImagesMap = new Map<number, string[]>();
 
     for (let i = 1; i <= numPages; i++) {
       if (onProgress) {
@@ -971,6 +1294,16 @@ export async function extractTextFromPdf(
           pageString = extractDigitalTextFromPage(textContent);
         } catch (tcErr) {
           console.warn(`Text content extraction warning for page ${i}:`, tcErr);
+        }
+
+        // Check for embedded drawings, figures, stamps, and photos in the PDF page
+        try {
+          const embeddedImgs = await extractImagesFromPdfPage(page, 2);
+          if (embeddedImgs.length > 0) {
+            pageImagesMap.set(i, embeddedImgs);
+          }
+        } catch (imgExtractErr) {
+          console.warn(`Image extraction notice for page ${i}:`, imgExtractErr);
         }
 
         const trimmedLen = pageString.trim().length;
@@ -1039,6 +1372,25 @@ export async function extractTextFromPdf(
               );
 
               if (canvas) {
+                // Snapshot rendered canvas as visual contract drawing / page image
+                try {
+                  const existingImgs = pageImagesMap.get(pageNum) || [];
+                  if (existingImgs.length === 0) {
+                    const snapCanvas = document.createElement('canvas');
+                    const snapScale = Math.min(1.0, 1200 / Math.max(canvas.width, canvas.height));
+                    snapCanvas.width = Math.max(1, Math.floor(canvas.width * snapScale));
+                    snapCanvas.height = Math.max(1, Math.floor(canvas.height * snapScale));
+                    const sCtx = snapCanvas.getContext('2d');
+                    if (sCtx) {
+                      sCtx.drawImage(canvas, 0, 0, snapCanvas.width, snapCanvas.height);
+                      existingImgs.push(snapCanvas.toDataURL('image/jpeg', 0.80));
+                      pageImagesMap.set(pageNum, existingImgs);
+                    }
+                  }
+                } catch (snapErr) {
+                  console.warn('Page canvas snapshot warning:', snapErr);
+                }
+
                 if (isCanvasBlankOrNoiseFree(canvas)) {
                   ocrResults.set(pageNum, `[Page ${pageNum} - Blank Page]`);
                 } else {
@@ -1146,19 +1498,35 @@ export async function extractTextFromPdf(
       }
     }
 
-    // Step 3: Compile finalized page records
-    const pageRecords: DocumentPage[] = intermediatePages.map(p => ({
-      pageNumber: p.pageNumber,
-      text: p.digitalText || `[Page ${p.pageNumber} - Scanned or Visual Graphics / No Text Detected]`,
-      isOcr: p.isOcr
-    }));
+    // Step 3: Compile finalized page records with recognized contract images
+    const pageRecords: DocumentPage[] = intermediatePages.map(p => {
+      const pImages = pageImagesMap.get(p.pageNumber);
+      return {
+        pageNumber: p.pageNumber,
+        text: p.digitalText || `[Page ${p.pageNumber} - Scanned or Visual Graphics / No Text Detected]`,
+        isOcr: p.isOcr,
+        images: pImages && pImages.length > 0 ? pImages : undefined
+      };
+    });
+
+    // Collect all recognized images across pages (drawings, site photos, stamps)
+    const allDocImages: string[] = [];
+    for (const p of pageRecords) {
+      if (p.images) {
+        for (const img of p.images) {
+          if (!allDocImages.includes(img) && allDocImages.length < 24) {
+            allDocImages.push(img);
+          }
+        }
+      }
+    }
 
     if (onProgress) {
       onProgress({
         currentPage: numPages,
         totalPages: numPages,
         stage: 'complete',
-        message: `Parsed ${numPages} pages (${ocrPagesCount} scanned pages digitized via OCR).`,
+        message: `Parsed ${numPages} pages (${ocrPagesCount} scanned pages digitized, ${allDocImages.length} images/drawings recognized).`,
         percent: 100
       });
     }
@@ -1192,7 +1560,8 @@ export async function extractTextFromPdf(
       suggestedClassification: extracted.suggestedClassification,
       isScannedOrEmpty,
       ocrPagesCount,
-      isOcrExtracted: ocrPagesCount > 0
+      isOcrExtracted: ocrPagesCount > 0,
+      images: allDocImages.length > 0 ? allDocImages : undefined
     };
   } catch (err: any) {
     console.error('Error parsing PDF with pdfjsLib:', err);

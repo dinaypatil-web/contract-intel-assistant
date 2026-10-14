@@ -48,6 +48,7 @@ export interface DocumentPage {
   text: string;
   clauseCount?: number;
   isOcr?: boolean;
+  images?: string[]; // Array of base64 data URLs / thumbnails for images recognized on this page
 }
 
 export interface ContractDocument {
@@ -65,6 +66,7 @@ export interface ContractDocument {
   pages?: DocumentPage[];
   fileName?: string;
   fileSize?: string;
+  images?: string[]; // Extracted contract images, drawings, site photos, stamps
 }
 
 export interface Project {

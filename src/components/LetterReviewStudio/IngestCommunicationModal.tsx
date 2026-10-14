@@ -16,7 +16,7 @@ import {
   AlertTriangle,
   RefreshCw
 } from 'lucide-react';
-import { extractTextFromPdf, formatFileSize } from '../../utils/pdfParser';
+import { extractTextFromPdf, formatFileSize, isImageFile } from '../../utils/pdfParser';
 
 interface IngestCommunicationModalProps {
   isOpen: boolean;
@@ -49,6 +49,7 @@ export const IngestCommunicationModal: React.FC<IngestCommunicationModalProps> =
     isScannedOrEmpty: boolean;
     isOcrExtracted?: boolean;
     ocrPagesCount?: number;
+    images?: string[];
   } | null>(null);
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -63,7 +64,7 @@ export const IngestCommunicationModal: React.FC<IngestCommunicationModalProps> =
     setAttachedFileName(file.name);
     const lowerName = file.name.toLowerCase();
 
-    if (lowerName.endsWith('.pdf') || file.type === 'application/pdf') {
+    if (lowerName.endsWith('.pdf') || file.type === 'application/pdf' || isImageFile(file)) {
       setIsProcessingPdf(true);
       setProcessingStatus(`Analyzing "${file.name}"...`);
       try {
@@ -77,7 +78,8 @@ export const IngestCommunicationModal: React.FC<IngestCommunicationModalProps> =
           detectedClauses: result.detectedClauses,
           isScannedOrEmpty: result.isScannedOrEmpty,
           isOcrExtracted: result.isOcrExtracted,
-          ocrPagesCount: result.ocrPagesCount
+          ocrPagesCount: result.ocrPagesCount,
+          images: result.images
         });
 
         if (result.text && result.text.trim()) {
@@ -584,7 +586,7 @@ Dear Sir,
                   ref={fileInputRef}
                   type="file" 
                   id="letter-pdf-file-picker" 
-                  accept=".pdf,.doc,.docx,.txt,application/pdf" 
+                  accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.webp,.bmp,.tiff,image/*,application/pdf" 
                   onChange={handleFileUpload}
                   style={{ display: 'none' }}
                 />

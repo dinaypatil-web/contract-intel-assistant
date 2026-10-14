@@ -31,7 +31,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { generateFormalContractReply, scanForDangerousPhrases } from '../../utils/legalSafety';
-import { extractTextFromPdf } from '../../utils/pdfParser';
+import { extractTextFromPdf, isImageFile } from '../../utils/pdfParser';
 import { DraftCheckerTab } from './DraftCheckerTab';
 
 interface LetterReviewStudioProps {
@@ -84,7 +84,7 @@ export const LetterReviewStudio: React.FC<LetterReviewStudioProps> = ({
     setIntakeFileName(file.name);
     const lowerName = file.name.toLowerCase();
 
-    if (lowerName.endsWith('.pdf') || file.type === 'application/pdf') {
+    if (lowerName.endsWith('.pdf') || file.type === 'application/pdf' || isImageFile(file)) {
       setIsIntakeProcessingPdf(true);
       try {
         const result = await extractTextFromPdf(file, file.name, undefined, { mode: 'balanced' });
@@ -437,7 +437,7 @@ export const LetterReviewStudio: React.FC<LetterReviewStudioProps> = ({
                 ref={intakeFileInputRef}
                 type="file" 
                 id="studio-intake-file-picker" 
-                accept=".pdf,.doc,.docx,.txt,application/pdf" 
+                accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.webp,.bmp,.tiff,image/*,application/pdf" 
                 onChange={(e) => {
                   if (e.target.files && e.target.files.length > 0) {
                     processIntakeFile(e.target.files[0]);

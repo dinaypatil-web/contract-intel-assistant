@@ -20,7 +20,8 @@ import {
   Info,
   Download,
   Copy,
-  Check
+  Check,
+  Image as ImageIcon
 } from 'lucide-react';
 import { AddDocumentModal } from './AddDocumentModal';
 import { FormattedContractContent } from '../common/FormattedContractContent';
@@ -44,7 +45,7 @@ export const HierarchyExplorer: React.FC<HierarchyExplorerProps> = ({
   );
   const [clauseSearch, setClauseSearch] = useState<string>('');
   const [activeTabCol2, setActiveTabCol2] = useState<'clauses' | 'pages'>('clauses');
-  const [viewMode, setViewMode] = useState<'clause' | 'pageReader' | 'rawText' | 'specs'>('clause');
+  const [viewMode, setViewMode] = useState<'clause' | 'pageReader' | 'rawText' | 'specs' | 'images'>('clause');
   const [currentPageIndex, setCurrentPageIndex] = useState<number>(1);
 
   // Modal states
@@ -479,6 +480,17 @@ export const HierarchyExplorer: React.FC<HierarchyExplorerProps> = ({
                     <Info size={13} />
                     <span>Document Specs</span>
                   </button>
+                  {selectedDoc?.images && selectedDoc.images.length > 0 && (
+                    <button
+                      type="button"
+                      className={`nav-action-btn ${viewMode === 'images' ? 'active' : ''}`}
+                      style={{ fontSize: '0.78rem', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '5px' }}
+                      onClick={() => setViewMode('images')}
+                    >
+                      <ImageIcon size={13} color="var(--accent-blue)" />
+                      <span>Drawings & Figures ({selectedDoc.images.length})</span>
+                    </button>
+                  )}
                 </div>
 
                 {viewMode === 'pageReader' && (
@@ -690,7 +702,7 @@ export const HierarchyExplorer: React.FC<HierarchyExplorerProps> = ({
                     overflowY: 'auto',
                     boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.2)'
                   }}>
-                    <FormattedContractContent text={activePageData.text} />
+                    <FormattedContractContent text={activePageData.text} images={activePageData.images} />
                   </div>
 
                   {/* Page Navigator Bottom Bar */}
@@ -792,7 +804,7 @@ export const HierarchyExplorer: React.FC<HierarchyExplorerProps> = ({
                     maxHeight: '540px',
                     overflowY: 'auto'
                   }}>
-                    <FormattedContractContent text={selectedDoc?.rawText || 'No text extracted.'} />
+                    <FormattedContractContent text={selectedDoc?.rawText || 'No text extracted.'} images={selectedDoc?.images} />
                   </div>
                 </div>
               )}
@@ -856,6 +868,102 @@ export const HierarchyExplorer: React.FC<HierarchyExplorerProps> = ({
                         {selectedDoc.summary}
                       </div>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* VIEW MODE 5: RECOGNIZED DRAWINGS & FIGURES GALLERY */}
+              {viewMode === 'images' && selectedDoc && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span className="badge badge-notice">{selectedDoc.volumeNumber}</span>
+                        <span className="badge badge-success">
+                          🖼️ {selectedDoc.images?.length || 0} Figures Recognized
+                        </span>
+                      </div>
+                      <h2 style={{ fontSize: '1.25rem', fontWeight: 800, marginTop: '6px' }}>
+                        Recognized Drawings, Figures & Visual Documents
+                      </h2>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      style={{ fontSize: '0.78rem', padding: '6px 12px' }}
+                      onClick={() => setViewMode('pageReader')}
+                    >
+                      &larr; Back to Page Reader
+                    </button>
+                  </div>
+
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                    gap: '16px'
+                  }}>
+                    {selectedDoc.images?.map((imgUrl, i) => (
+                      <div
+                        key={i}
+                        className="glass-panel"
+                        style={{
+                          borderRadius: 'var(--radius-md)',
+                          overflow: 'hidden',
+                          border: '1px solid var(--border-medium)',
+                          background: 'var(--bg-surface)',
+                          display: 'flex',
+                          flexDirection: 'column'
+                        }}
+                      >
+                        <div style={{
+                          aspectRatio: '16 / 10',
+                          background: '#090d16',
+                          overflow: 'hidden',
+                          position: 'relative'
+                        }}>
+                          <img
+                            src={imgUrl}
+                            alt={`Recognized drawing ${i + 1}`}
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'contain',
+                              display: 'block'
+                            }}
+                          />
+                        </div>
+
+                        <div style={{ padding: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                              Figure {i + 1}
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              Extracted Visual Artifact &bull; {selectedDoc.title}
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              style={{ padding: '5px 10px', fontSize: '0.74rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                              onClick={() => {
+                                const a = document.createElement('a');
+                                a.href = imgUrl;
+                                a.download = `${selectedDoc.title.replace(/\s+/g, '_')}_figure_${i + 1}.jpg`;
+                                a.click();
+                              }}
+                              title="Download drawing"
+                            >
+                              <Download size={13} />
+                              <span>Download</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}

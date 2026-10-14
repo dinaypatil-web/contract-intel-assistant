@@ -13,7 +13,7 @@ import {
   Calendar,
   FolderPlus
 } from 'lucide-react';
-import { extractTextFromPdf, formatFileSize, parseClausesFromContractText } from '../../utils/pdfParser';
+import { extractTextFromPdf, formatFileSize, parseClausesFromContractText, isImageFile } from '../../utils/pdfParser';
 
 interface AddDocumentModalProps {
   isOpen: boolean;
@@ -42,6 +42,7 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [parsingStatus, setParsingStatus] = useState<string>('');
   const [ocrExtractedCount, setOcrExtractedCount] = useState<number>(0);
+  const [docImages, setDocImages] = useState<string[]>([]);
   const [pageCount, setPageCount] = useState<number>(1);
   const [rawText, setRawText] = useState<string>('');
   const [pageDetails, setPageDetails] = useState<DocumentPage[]>([]);
@@ -82,12 +83,14 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
     else if (lower.includes('acceptance') || lower.includes('award')) setDocumentType('Letter of Acceptance');
 
     try {
+      setDocImages([]);
       const isPdf = lower.endsWith('.pdf') || file.type === 'application/pdf';
+      const isImg = isImageFile(file);
       let extracted = '';
       let pages = 1;
       let pagesList: DocumentPage[] = [];
 
-      if (isPdf) {
+      if (isPdf || isImg) {
         const result = await extractTextFromPdf(file, file.name, (prog) => {
           setParsingStatus(prog.message);
         }, { mode: 'balanced' });
@@ -96,6 +99,12 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
         pagesList = result.pages || [{ pageNumber: 1, text: extracted }];
         if (result.ocrPagesCount) {
           setOcrExtractedCount(result.ocrPagesCount);
+        }
+        if (result.images && result.images.length > 0) {
+          setDocImages(result.images);
+        }
+        if (isImg && result.suggestedClassification) {
+          setDocumentType(result.suggestedClassification as any);
         }
       } else {
         extracted = await file.text();
@@ -189,11 +198,12 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
         documentId: docId,
         volumeNumber: finalVolume
       })),
-      summary: summary.trim() || `Contract volume (${finalVolume}) with ${pageCount} pages and ${parsedClauses.length} parsed clauses.`,
+      summary: summary.trim() || `Contract volume (${finalVolume}) with ${pageCount} pages, ${docImages.length > 0 ? docImages.length + ' recognized images/drawings, ' : ''}and ${parsedClauses.length} parsed clauses.`,
       rawText: rawText || `[Document: ${finalTitle}]`,
-      pages: pageDetails.length > 0 ? pageDetails : [{ pageNumber: 1, text: rawText || finalTitle }],
+      pages: pageDetails.length > 0 ? pageDetails : [{ pageNumber: 1, text: rawText || finalTitle, images: docImages }],
       fileName: selectedFile?.name || `${finalTitle.replace(/\s+/g, '_')}.pdf`,
-      fileSize: fileSizeFormatted || '15.0 KB'
+      fileSize: fileSizeFormatted || '15.0 KB',
+      images: docImages.length > 0 ? docImages : undefined
     };
 
     onAddDocument(newDoc);
@@ -312,7 +322,7 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
             ref={fileInputRef}
             type="file"
             id="contract-doc-file-picker"
-            accept=".pdf,.doc,.docx,.txt,application/pdf"
+            accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.webp,.bmp,.tiff,image/*,application/pdf"
             onChange={handleFileChange}
             style={{ display: 'none' }}
           />
@@ -345,19 +355,52 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
                 ? (parsingStatus || 'Reading all pages & extracting clause hierarchy...')
                 : selectedFile 
                 ? selectedFile.name 
-                : 'Select Contract PDF or Document File'
+                : 'Select Contract PDF, Document, or Drawing Image'
               }
             </div>
             <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '2px' }}>
               {selectedFile ? (
                 <span style={{ color: 'var(--status-success)' }}>
-                  {pageCount} {pageCount === 1 ? 'Page' : 'Pages'} recognized &bull; {parsedClauses.length} Clauses indexed {ocrExtractedCount > 0 ? `• OCR Digitized (${ocrExtractedCount} pages) ` : ''}&bull; {fileSizeFormatted}
+                  {pageCount} {pageCount === 1 ? 'Page' : 'Pages'} recognized &bull; {parsedClauses.length} Clauses indexed {ocrExtractedCount > 0 ? `• OCR Digitized (${ocrExtractedCount} pages) ` : ''}{docImages.length > 0 ? `• 🖼️ ${docImages.length} Images Recognized ` : ''}&bull; {fileSizeFormatted}
                 </span>
               ) : (
-                'Drop PDF (.pdf), Word (.doc, .docx), or Text (.txt). All pages will be extracted client-side with OCR support.'
+                'Drop PDF (.pdf), Word (.doc, .docx), Text (.txt), or Drawing / Contract Images (.png, .jpg, .webp). Full neural OCR extraction included.'
               )}
             </div>
           </div>
+
+          {docImages.length > 0 && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              marginTop: '4px',
+              padding: '6px 12px',
+              background: 'rgba(56, 189, 248, 0.08)',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid rgba(56, 189, 248, 0.2)'
+            }}>
+              <span style={{ fontSize: '0.74rem', color: 'var(--accent-blue)', fontWeight: 600 }}>
+                🖼️ {docImages.length} {docImages.length === 1 ? 'Image / Drawing' : 'Images / Drawings'} Extracted:
+              </span>
+              <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', maxWidth: '320px' }}>
+                {docImages.slice(0, 4).map((img, idx) => (
+                  <img
+                    key={idx}
+                    src={img}
+                    alt={`Recognized contract figure ${idx + 1}`}
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      objectFit: 'cover',
+                      borderRadius: '4px',
+                      border: '1px solid var(--border-subtle)'
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
 
           <label
             htmlFor="contract-doc-file-picker"

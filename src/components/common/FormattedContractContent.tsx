@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { Table, Copy, Check } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Table, Copy, Check, Image as ImageIcon, ZoomIn, ZoomOut, RotateCcw, Download, X, Eye } from 'lucide-react';
 
 interface FormattedContractContentProps {
   text: string;
   className?: string;
   style?: React.CSSProperties;
+  images?: string[];
 }
 
 interface ParsedTable {
@@ -130,15 +131,36 @@ function segmentTextAndTables(rawText: string): Array<{ type: 'text' | 'table'; 
 export const FormattedContractContent: React.FC<FormattedContractContentProps> = ({
   text,
   className,
-  style
+  style,
+  images = []
 }) => {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [zoomScale, setZoomScale] = useState<number>(1);
+  const [isImagesCollapsed, setIsImagesCollapsed] = useState<boolean>(false);
 
-  if (!text) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setLightboxIndex(null);
+        setZoomScale(1);
+      } else if (e.key === 'ArrowRight' && lightboxIndex !== null && images.length > 1) {
+        setLightboxIndex((lightboxIndex + 1) % images.length);
+        setZoomScale(1);
+      } else if (e.key === 'ArrowLeft' && lightboxIndex !== null && images.length > 1) {
+        setLightboxIndex((lightboxIndex - 1 + images.length) % images.length);
+        setZoomScale(1);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [lightboxIndex, images.length]);
+
+  if (!text && (!images || images.length === 0)) {
     return <div className={className} style={style}>No content available.</div>;
   }
 
-  const segments = segmentTextAndTables(text);
+  const segments = segmentTextAndTables(text || '');
 
   const handleCopyCsv = (table: ParsedTable, index: number) => {
     const csvContent = [
@@ -151,8 +173,118 @@ export const FormattedContractContent: React.FC<FormattedContractContentProps> =
     setTimeout(() => setCopiedIndex(null), 2000);
   };
 
+  const handleDownloadImage = (dataUrl: string, idx: number) => {
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = `contract_figure_${idx + 1}.jpg`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   return (
-    <div className={className} style={{ display: 'flex', flexDirection: 'column', gap: '12px', ...style }}>
+    <div className={className} style={{ display: 'flex', flexDirection: 'column', gap: '14px', ...style }}>
+      {/* Recognized Contract Images & Figures Gallery Banner */}
+      {images && images.length > 0 && (
+        <div style={{
+          background: 'rgba(56, 189, 248, 0.05)',
+          border: '1px solid rgba(56, 189, 248, 0.22)',
+          borderRadius: 'var(--radius-md)',
+          padding: '12px 16px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '10px'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{
+                width: '28px',
+                height: '28px',
+                borderRadius: '6px',
+                background: 'rgba(56, 189, 248, 0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--accent-blue)'
+              }}>
+                <ImageIcon size={16} />
+              </div>
+              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                Recognized Images & Visual Figures ({images.length})
+              </span>
+            </div>
+
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setIsImagesCollapsed(prev => !prev)}
+              style={{ fontSize: '0.72rem', padding: '3px 10px', height: 'auto' }}
+            >
+              {isImagesCollapsed ? 'Show Thumbnails' : 'Collapse'}
+            </button>
+          </div>
+
+          {!isImagesCollapsed && (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
+              gap: '12px',
+              marginTop: '4px'
+            }}>
+              {images.map((imgUrl, i) => (
+                <div
+                  key={i}
+                  style={{
+                    position: 'relative',
+                    borderRadius: 'var(--radius-sm)',
+                    overflow: 'hidden',
+                    border: '1px solid var(--border-medium)',
+                    background: '#090d16',
+                    cursor: 'pointer',
+                    aspectRatio: '4 / 3'
+                  }}
+                  onClick={() => {
+                    setLightboxIndex(i);
+                    setZoomScale(1);
+                  }}
+                  title="Click to view full image & zoom"
+                >
+                  <img
+                    src={imgUrl}
+                    alt={`Recognized contract figure ${i + 1}`}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      display: 'block',
+                      transition: 'transform 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.transform = 'scale(1.05)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.transform = 'scale(1)')}
+                  />
+                  <div style={{
+                    position: 'absolute',
+                    bottom: 0,
+                    insetInline: 0,
+                    background: 'linear-gradient(transparent, rgba(0,0,0,0.85))',
+                    padding: '4px 6px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}>
+                    <span style={{ fontSize: '0.68rem', fontWeight: 600, color: '#e2e8f0' }}>
+                      Figure {i + 1}
+                    </span>
+                    <Eye size={12} color="var(--accent-blue)" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Render Document Text & Markdown Tables */}
       {segments.map((seg, idx) => {
         if (seg.type === 'text') {
           return (
@@ -229,6 +361,169 @@ export const FormattedContractContent: React.FC<FormattedContractContentProps> =
 
         return null;
       })}
+
+      {/* Interactive Lightbox Modal for High-Resolution Visual Inspection */}
+      {lightboxIndex !== null && images[lightboxIndex] && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(5, 8, 15, 0.94)',
+            backdropFilter: 'blur(16px)',
+            zIndex: 99999,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px'
+          }}
+          onClick={() => {
+            setLightboxIndex(null);
+            setZoomScale(1);
+          }}
+        >
+          {/* Top Control Bar */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '16px',
+              left: '20px',
+              right: '20px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              zIndex: 100000
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.12)',
+                color: '#fff',
+                fontSize: '0.84rem',
+                fontWeight: 700,
+                padding: '6px 14px',
+                borderRadius: 'var(--radius-sm)'
+              }}>
+                Figure {lightboxIndex + 1} of {images.length}
+              </div>
+
+              {images.length > 1 && (
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      setLightboxIndex((lightboxIndex - 1 + images.length) % images.length);
+                      setZoomScale(1);
+                    }}
+                    style={{ padding: '6px 12px', fontSize: '0.78rem' }}
+                  >
+                    &larr; Prev
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      setLightboxIndex((lightboxIndex + 1) % images.length);
+                      setZoomScale(1);
+                    }}
+                    style={{ padding: '6px 12px', fontSize: '0.78rem' }}
+                  >
+                    Next &rarr;
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Zoom & Action Controls */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setZoomScale(prev => Math.min(prev + 0.25, 3.5))}
+                title="Zoom In (+)"
+                style={{ padding: '6px 10px' }}
+              >
+                <ZoomIn size={16} />
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setZoomScale(prev => Math.max(prev - 0.25, 0.5))}
+                title="Zoom Out (-)"
+                style={{ padding: '6px 10px' }}
+              >
+                <ZoomOut size={16} />
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setZoomScale(1)}
+                title="Reset Zoom (1:1)"
+                style={{ padding: '6px 10px' }}
+              >
+                <RotateCcw size={16} />
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => handleDownloadImage(images[lightboxIndex], lightboxIndex)}
+                title="Download full resolution image"
+                style={{ padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Download size={16} />
+                <span style={{ fontSize: '0.78rem' }}>Save Image</span>
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  setLightboxIndex(null);
+                  setZoomScale(1);
+                }}
+                title="Close Lightbox (Esc)"
+                style={{ padding: '6px 10px', background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+
+          {/* Main Zoomable Image Viewport */}
+          <div
+            style={{
+              maxWidth: '92vw',
+              maxHeight: '82vh',
+              overflow: 'auto',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginTop: '40px'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={images[lightboxIndex]}
+              alt={`Recognized contract figure ${lightboxIndex + 1}`}
+              style={{
+                maxWidth: zoomScale === 1 ? '88vw' : 'none',
+                maxHeight: zoomScale === 1 ? '78vh' : 'none',
+                transform: `scale(${zoomScale})`,
+                transformOrigin: 'center center',
+                transition: 'transform 0.15s ease',
+                borderRadius: 'var(--radius-sm)',
+                boxShadow: '0 20px 50px rgba(0,0,0,0.8)',
+                cursor: zoomScale > 1 ? 'grab' : 'zoom-in'
+              }}
+              onClick={() => {
+                if (zoomScale === 1) setZoomScale(1.75);
+                else setZoomScale(1);
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
