@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Project, ContractClause, ContractDocument, DocumentPage } from '../../types/contract';
 import { 
   Layers, 
@@ -52,14 +52,23 @@ export const HierarchyExplorer: React.FC<HierarchyExplorerProps> = ({
   const [docToDelete, setDocToDelete] = useState<ContractDocument | null>(null);
   const [isCopied, setIsCopied] = useState<boolean>(false);
 
+  const prevDocCountRef = useRef<number>(project.documents.length);
+
   // Sync when project or documents change
   useEffect(() => {
     if (project.documents.length > 0) {
-      const doc = project.documents.find(d => d.id === selectedDoc?.id) || project.documents[0];
+      const isNewDocAdded = project.documents.length > prevDocCountRef.current;
+      prevDocCountRef.current = project.documents.length;
+
+      const doc = isNewDocAdded
+        ? project.documents[project.documents.length - 1]
+        : (project.documents.find(d => d.id === selectedDoc?.id) || project.documents[0]);
+
       setSelectedDoc(doc);
       setSelectedClause(doc?.clauses[0] || null);
       setCurrentPageIndex(1);
     } else {
+      prevDocCountRef.current = 0;
       setSelectedDoc(null);
       setSelectedClause(null);
     }
@@ -874,6 +883,7 @@ export const HierarchyExplorer: React.FC<HierarchyExplorerProps> = ({
             setSelectedDoc(newDoc);
             setSelectedClause(newDoc.clauses[0] || null);
             setCurrentPageIndex(1);
+            setIsAddModalOpen(false);
           }}
         />
       )}

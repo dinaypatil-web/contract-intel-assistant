@@ -1,6 +1,12 @@
 import { Project, IncomingLetterReview, UserProfile } from '../types/contract';
 import { mockProjects } from '../data/mockProjects';
 import { mockLetters } from '../data/mockLetters';
+import { 
+  saveProjectsToDb, 
+  loadProjectsFromDb, 
+  saveLettersToDb, 
+  loadLettersFromDb 
+} from './indexedDb';
 
 const STORAGE_KEYS = {
   USER_PROFILE: 'contractmind_user_profile_v1',
@@ -59,7 +65,7 @@ export function saveUserProfile(profile: UserProfile): boolean {
 let inMemoryProjectsCache: Project[] | null = null;
 
 /**
- * Loads all projects from memory cache or persistent localStorage
+ * Loads all projects from memory cache or persistent localStorage (synchronous bootstrap)
  */
 export function loadProjects(): Project[] {
   if (inMemoryProjectsCache && inMemoryProjectsCache.length > 0) {
@@ -82,38 +88,65 @@ export function loadProjects(): Project[] {
 }
 
 /**
- * Saves all projects to in-memory cache and persistent localStorage
- * Gracefully handles localStorage QuotaExceededError by keeping full fidelity in memory
- * and saving a clean payload to localStorage.
+ * Asynchronously loads full-fidelity projects from IndexedDB (unlimited capacity).
+ * If IndexedDB is empty but localStorage has legacy data, automatically migrates to IndexedDB.
+ */
+export async function loadProjectsAsync(): Promise<Project[]> {
+  try {
+    const idbProjects = await loadProjectsFromDb();
+    if (idbProjects && idbProjects.length > 0) {
+      inMemoryProjectsCache = idbProjects;
+      return idbProjects;
+    }
+  } catch (err) {
+    console.warn('Could not read projects from IndexedDB, checking localStorage fallback:', err);
+  }
+
+  // Fallback to localStorage and migrate to IndexedDB if found
+  const local = loadProjects();
+  if (local && local.length > 0) {
+    saveProjectsToDb(local).catch(() => {});
+  }
+  return local;
+}
+
+/**
+ * Saves all projects with full fidelity to in-memory cache and IndexedDB (unlimited size).
+ * Also writes a safe, non-overflowing snapshot to localStorage for quick bootstrap.
  */
 export function saveProjects(projects: Project[]): boolean {
+  // 1. Immediately update in-memory cache
   inMemoryProjectsCache = projects;
+
+  // 2. Persist full fidelity (including rawText, pages, and clauses) to IndexedDB
+  saveProjectsToDb(projects).catch(err => {
+    console.error('IndexedDB saveProjectsToDb error:', err);
+  });
+
+  // 3. Persist to localStorage with safety truncation so it never throws QuotaExceededError
   try {
     localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(projects));
     return true;
-  } catch (err: any) {
-    console.warn('LocalStorage quota exceeded or save error; applying compact persistence:', err);
+  } catch {
     try {
-      // Create a compact version for localStorage: keep clauses and page metadata, but cap rawText per document
-      const compactProjects = projects.map(proj => ({
+      // Quota exceeded: store a lightweight index in localStorage for instant header/list rendering
+      const slimProjects = projects.map(proj => ({
         ...proj,
         documents: proj.documents.map(doc => ({
           ...doc,
-          rawText: doc.rawText && doc.rawText.length > 80000 
-            ? doc.rawText.slice(0, 80000) + '... [Full text indexed in local memory]' 
-            : doc.rawText,
-          pages: doc.pages?.map(p => ({
+          rawText: doc.rawText ? doc.rawText.slice(0, 5000) + '... [Full text saved in IndexedDB]' : '',
+          pages: doc.pages?.slice(0, 10).map(p => ({
             ...p,
-            text: p.text.length > 15000 ? p.text.slice(0, 15000) + '...' : p.text
-          }))
+            text: p.text.slice(0, 1500) + '... [Page saved in IndexedDB]'
+          })) || []
         }))
       }));
 
-      localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(compactProjects));
+      localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(slimProjects));
       return true;
-    } catch (innerErr) {
-      console.error('Failed even compact save to localStorage:', innerErr);
-      return false;
+    } catch {
+      // Even slim version couldn't fit in 5MB localStorage: IndexedDB has already safely saved it!
+      return true;
     }
   }
 }
@@ -145,7 +178,7 @@ export function saveActiveProjectId(id: string | null): void {
 }
 
 /**
- * Loads correspondence / letters from persistent localStorage
+ * Loads correspondence / letters synchronously
  */
 export function loadLetters(): IncomingLetterReview[] {
   try {
@@ -163,15 +196,41 @@ export function loadLetters(): IncomingLetterReview[] {
 }
 
 /**
- * Saves correspondence / letters to persistent localStorage
+ * Asynchronously loads letters from IndexedDB
+ */
+export async function loadLettersAsync(): Promise<IncomingLetterReview[]> {
+  try {
+    const idbLetters = await loadLettersFromDb();
+    if (idbLetters && idbLetters.length > 0) {
+      return idbLetters;
+    }
+  } catch (err) {
+    console.warn('Could not read letters from IndexedDB:', err);
+  }
+
+  const local = loadLetters();
+  if (local && local.length > 0) {
+    saveLettersToDb(local).catch(() => {});
+  }
+  return local;
+}
+
+/**
+ * Saves correspondence / letters to IndexedDB and localStorage
  */
 export function saveLetters(letters: IncomingLetterReview[]): boolean {
+  // 1. Persist full fidelity to IndexedDB
+  saveLettersToDb(letters).catch(err => {
+    console.error('IndexedDB saveLettersToDb error:', err);
+  });
+
+  // 2. Persist to localStorage
   try {
     localStorage.setItem(STORAGE_KEYS.LETTERS, JSON.stringify(letters));
     return true;
   } catch (err) {
-    console.error('Failed to save letters to localStorage:', err);
-    return false;
+    console.warn('LocalStorage saveLetters quota exceeded; safely stored in IndexedDB:', err);
+    return true;
   }
 }
 

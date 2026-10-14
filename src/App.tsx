@@ -7,10 +7,12 @@ import {
   loadUserProfile, 
   saveUserProfile, 
   loadProjects, 
+  loadProjectsAsync,
   saveProjects, 
   loadActiveProjectId, 
   saveActiveProjectId, 
   loadLetters, 
+  loadLettersAsync,
   saveLetters, 
   loadThemePreference, 
   saveThemePreference 
@@ -80,7 +82,35 @@ export const App: React.FC = () => {
     saveUserProfile(updated);
   };
 
-  // Sync projects to localStorage
+  // Hydrate full fidelity projects and letters from IndexedDB on startup
+  useEffect(() => {
+    let isMounted = true;
+
+    loadProjectsAsync().then(loadedProjects => {
+      if (!isMounted) return;
+      if (loadedProjects && loadedProjects.length > 0) {
+        setProjects(loadedProjects);
+        setActiveProject(prev => {
+          if (!prev) return loadedProjects[0];
+          const match = loadedProjects.find(p => p.id === prev.id);
+          return match || loadedProjects[0];
+        });
+      }
+    });
+
+    loadLettersAsync().then(loadedLetters => {
+      if (!isMounted) return;
+      if (loadedLetters && loadedLetters.length > 0) {
+        setLetters(loadedLetters);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Sync projects to storage
   useEffect(() => {
     saveProjects(projects);
   }, [projects]);
