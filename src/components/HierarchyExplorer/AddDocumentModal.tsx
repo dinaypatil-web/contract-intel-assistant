@@ -150,7 +150,7 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
       },
       {
         pageNumber: 2,
-        text: 'Section 2.0 Material Specifications & Testing Protocols\n2.1 Structural Concrete: Grade C50/60 with silica fume admixture. Testing frequency: 1 core test per 50 cubic meters.\n2.2 Reinforcing Steel: High-yield deformed steel rebars complying with BS 4449 Grade 500B.'
+        text: 'Section 2.0 Material Specifications & Testing Protocols\n2.1 Structural Concrete: Grade C50/60 with silica fume admixture.\n\n| Item Code | Material / Component | Testing Standard | Minimum Frequency | Compliance Criteria |\n| --- | --- | --- | --- | --- |\n| CONC-01 | Grade C50/60 Structural Concrete | BS EN 12390-3 | 1 test set per 50 m³ | 28-day Compressive ≥ 50 MPa |\n| ST-02 | High Yield Rebar Grade 500B | BS 4449:2005 | 1 tensile test per 25 tons | Yield Strength ≥ 500 N/mm² |\n| AGG-03 | Coarse & Fine Aggregate | ASTM C33 | 1 gradation test per 200 tons | Passing 75µm Sieve < 1.0% |\n| BT-04 | Structural Bolts Grade 8.8 | ISO 898-1 | 1 proof load per batch | Proof Load ≥ 580 MPa |\n\n2.2 Reinforcing Steel: High-yield deformed steel rebars complying with BS 4449 Grade 500B.'
       },
       {
         pageNumber: 3,

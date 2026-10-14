@@ -382,12 +382,38 @@ export interface OcrOptions {
    * Max concurrent workers for multi-page documents (default: 2 on capable systems, 1 on low-core devices).
    */
   maxWorkers?: number;
+  /**
+   * Maximum duration in milliseconds to allow OCR recognition per page before watchdog times out and advances.
+   * Default: 25000ms (25 seconds). Prevents infinite hangs on noisy or heavy pages.
+   */
+  pageTimeoutMs?: number;
 }
 
 const MAX_CONCURRENT_WORKERS = (typeof navigator !== 'undefined' && (navigator.hardwareConcurrency || 2) >= 4) ? 2 : 1;
 let ocrWorkerPool: Worker[] = [];
 let poolPromise: Promise<Worker[]> | null = null;
 let poolIdleTimer: any = null;
+
+/**
+ * Promise timeout helper that rejects with an informative error if the promise does not resolve within ms.
+ */
+export async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  timeoutMessage: string
+): Promise<T> {
+  let timer: any;
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`TIMEOUT: ${timeoutMessage} (exceeded ${ms}ms)`));
+    }, ms);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function createOptimizedWorker(
   id: number,
@@ -429,14 +455,16 @@ async function createOptimizedWorker(
     });
   }
 
-  // Optimize Tesseract parameters for speed and contract text:
+  // Optimize Tesseract parameters for speed, contract text, and tabular structure:
   // PSM 3 = Fully automatic page segmentation without slow OSD rotation passes
   // OEM 1 = LSTM neural net only
+  // preserve_interword_spaces = 1 ensures multiple spaces between table columns are retained!
   // Disable unneeded heavy outputs (hOCR, TSV, Box, UNLV, OSD) to save CPU & memory
   try {
     await worker.setParameters({
       tessedit_pageseg_mode: '3' as any,
       tessedit_ocr_engine_mode: '1' as any,
+      preserve_interword_spaces: '1',
       tessjs_create_hocr: '0',
       tessjs_create_tsv: '0',
       tessjs_create_box: '0',
@@ -605,68 +633,245 @@ export function isCanvasBlankOrNoiseFree(canvas: HTMLCanvasElement): boolean {
 }
 
 /**
- * Cleans and normalizes raw OCR text, eliminating scanning artifacts and broken lines.
+ * Detects tabular column structures in extracted text (from OCR or digital PDF)
+ * and formats them into clean, readable Markdown tables with aligned headers and cells.
+ */
+export function reconstructTablesInText(text: string): string {
+  if (!text || text.length < 15) return text;
+
+  const lines = text.split('\n');
+  const resultLines: string[] = [];
+  let tableBuffer: string[] = [];
+
+  const flushTableBuffer = () => {
+    if (tableBuffer.length === 0) return;
+
+    if (tableBuffer.length >= 2) {
+      // Parse each line into column cells
+      const rowCells: string[][] = tableBuffer.map(line => {
+        const trimmed = line.trim();
+        // If line is already a pipe-delimited table line
+        if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+          return trimmed
+            .slice(1, -1)
+            .split('|')
+            .map(c => c.trim());
+        }
+        // Split by tabs or 2 or more consecutive spaces
+        return line.split(/\t+|\s{2,}/).map(c => c.trim()).filter(Boolean);
+      });
+
+      // Filter out lines that are pure dashes or dividers like '---' or '==='
+      const nonDividerRows = rowCells.filter(
+        r => r.length > 0 && !/^[-=_—\s]{3,}$/.test(r.join(''))
+      );
+
+      // Verify that the majority of rows have 2 or more columns
+      const multiColRows = nonDividerRows.filter(r => r.length >= 2);
+      if (multiColRows.length >= 2 && multiColRows.length >= nonDividerRows.length * 0.6) {
+        // Find typical column count
+        const colCounts = nonDividerRows.map(r => r.length);
+        const maxCols = Math.min(Math.max(...colCounts), 12); // Cap at 12 columns for sanity
+
+        if (maxCols >= 2) {
+          const mdTable: string[] = [];
+
+          // Header row (first non-divider row)
+          const header = [...nonDividerRows[0]];
+          while (header.length < maxCols) header.push('-');
+          const sanitizedHeader = header.slice(0, maxCols).map(h => h.replace(/\|/g, '/').trim() || '-');
+          mdTable.push(`| ${sanitizedHeader.join(' | ')} |`);
+
+          // Divider row
+          mdTable.push(`| ${Array(maxCols).fill('---').join(' | ')} |`);
+
+          // Data rows
+          for (let i = 1; i < nonDividerRows.length; i++) {
+            const row = [...nonDividerRows[i]];
+            while (row.length < maxCols) row.push('-');
+            const sanitizedRow = row.slice(0, maxCols).map(c => c.replace(/\|/g, '/').trim() || '-');
+            mdTable.push(`| ${sanitizedRow.join(' | ')} |`);
+          }
+
+          resultLines.push('');
+          resultLines.push(...mdTable);
+          resultLines.push('');
+          tableBuffer = [];
+          return;
+        }
+      }
+    }
+
+    // Not a valid table; output original lines
+    resultLines.push(...tableBuffer);
+    tableBuffer = [];
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      flushTableBuffer();
+      resultLines.push(line);
+      continue;
+    }
+
+    // Check if line looks like part of a table:
+    const hasPipes = trimmed.startsWith('|') && trimmed.endsWith('|') && trimmed.split('|').length >= 3;
+    const multiColCols = line.split(/\t+|\s{2,}/).map(c => c.trim()).filter(Boolean);
+    const isDividerLine = /^[-=_—\s|+]{4,}$/.test(trimmed);
+
+    // Guard: ignore contract clause titles (e.g. "Sub-Clause 8.4 Extension of Time")
+    const isClauseHeader = /^(?:Sub-Clause|Clause|PC|GC|Section|Article)\s+[0-9]/i.test(trimmed);
+
+    const looksLikeTableRow = !isClauseHeader && (hasPipes || isDividerLine || multiColCols.length >= 2);
+
+    if (looksLikeTableRow) {
+      tableBuffer.push(line);
+    } else {
+      flushTableBuffer();
+      resultLines.push(line);
+    }
+  }
+
+  flushTableBuffer();
+
+  return resultLines
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * Cleans and normalizes raw OCR text, preserving table column structures and converting to readable tables.
  */
 export function cleanOcrText(rawText: string): string {
   if (!rawText) return '';
-  return rawText
+  const cleaned = rawText
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
     // Remove isolated single punctuation noise on their own lines
     .replace(/\n\s*[`~_=\-|\^§]{1,2}\s*\n/g, '\n')
     // Rejoin words broken across line breaks with hyphens
     .replace(/([a-zA-Z]{3,})-\n\s*([a-zA-Z]{3,})/g, '$1$2')
-    // Condense excessive spaces while preserving line structure
-    .replace(/[ \t]{2,}/g, ' ')
     // Normalize excessive consecutive blank lines
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+
+  return reconstructTablesInText(cleaned);
 }
 
 /**
- * Extracts and reconstructs digital text from PDF TextContent preserving line and paragraph structure.
+ * Extracts and reconstructs digital text from PDF TextContent preserving line, column and table structures.
  */
 function extractDigitalTextFromPage(textContent: any): string {
   if (!textContent || !textContent.items || textContent.items.length === 0) {
     return '';
   }
 
-  let fullString = '';
-  let lastY: number | null = null;
-
-  for (const item of textContent.items) {
-    if (!item || typeof item.str !== 'string') continue;
-
-    const currentY = Array.isArray(item.transform) ? item.transform[5] : null;
-    if (lastY !== null && currentY !== null && Math.abs(currentY - lastY) > 4) {
-      fullString += '\n';
-    } else if (fullString.length > 0 && !fullString.endsWith('\n') && !fullString.endsWith(' ') && item.str.length > 0) {
-      fullString += ' ';
-    }
-
-    fullString += item.str;
-
-    if (item.hasEOL) {
-      fullString += '\n';
-    }
-
-    lastY = currentY;
+  interface TextItemPos {
+    str: string;
+    x: number;
+    y: number;
+    width: number;
+    hasEOL?: boolean;
   }
 
-  return fullString
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n\s*\n\s*\n+/g, '\n\n')
-    .trim();
+  const items: TextItemPos[] = [];
+  for (const item of textContent.items) {
+    if (!item || typeof item.str !== 'string') continue;
+    const x = Array.isArray(item.transform) ? item.transform[4] : 0;
+    const y = Array.isArray(item.transform) ? item.transform[5] : 0;
+    const width = typeof item.width === 'number' ? item.width : item.str.length * 6;
+    items.push({
+      str: item.str,
+      x,
+      y,
+      width,
+      hasEOL: item.hasEOL
+    });
+  }
+
+  // Stable sort by Y descending (PDF coordinates origin is bottom-left), then X ascending
+  items.sort((a, b) => {
+    if (Math.abs(b.y - a.y) > 3.5) {
+      return b.y - a.y;
+    }
+    return a.x - b.x;
+  });
+
+  // Group lines within Y tolerance of ~3.5pt
+  const lines: TextItemPos[][] = [];
+  let currentLine: TextItemPos[] = [];
+  let currentY: number | null = null;
+
+  for (const item of items) {
+    if (currentY === null || Math.abs(item.y - currentY) > 3.5) {
+      if (currentLine.length > 0) {
+        lines.push(currentLine);
+      }
+      currentLine = [item];
+      currentY = item.y;
+    } else {
+      currentLine.push(item);
+    }
+  }
+  if (currentLine.length > 0) {
+    lines.push(currentLine);
+  }
+
+  // Reconstruct lines with column gap detection
+  const reconstructedLines: string[] = [];
+
+  for (const row of lines) {
+    row.sort((a, b) => a.x - b.x);
+    let rowText = '';
+    let lastRight = -1;
+
+    for (let i = 0; i < row.length; i++) {
+      const it = row[i];
+      if (lastRight >= 0) {
+        const gap = it.x - lastRight;
+        // Large gap (> 18pt) indicates a column boundary in a table
+        if (gap > 18) {
+          rowText += '    '; // 4 spaces indicates column separation
+        } else if (gap > 2) {
+          rowText += ' ';
+        }
+      }
+      rowText += it.str;
+      lastRight = it.x + (it.width || it.str.length * 6);
+    }
+
+    if (rowText.trim().length > 0) {
+      reconstructedLines.push(rowText);
+    }
+  }
+
+  const rawExtracted = reconstructedLines.join('\n');
+  return reconstructTablesInText(rawExtracted);
 }
 
 /**
- * Renders a PDF page to an offscreen HTML5 canvas with solid white background.
+ * Renders a PDF page to an offscreen HTML5 canvas with solid white background
+ * and strict maximum dimension clamping to prevent memory overflow or WASM deadlock.
  */
 async function renderPageToCanvas(page: any, scale: number = 1.35): Promise<HTMLCanvasElement | null> {
   if (typeof document === 'undefined') return null;
 
   try {
-    const viewport = page.getViewport({ scale });
+    let viewport = page.getViewport({ scale });
+    
+    // Safety clamp: Cap max dimensions to 1400px to prevent WASM/GPU memory explosion
+    const MAX_CANVAS_DIM = 1400;
+    const maxDim = Math.max(viewport.width, viewport.height);
+    if (maxDim > MAX_CANVAS_DIM) {
+      const rescale = MAX_CANVAS_DIM / maxDim;
+      scale = scale * rescale;
+      viewport = page.getViewport({ scale });
+    }
+
     const canvas = document.createElement('canvas');
     canvas.width = Math.floor(viewport.width);
     canvas.height = Math.floor(viewport.height);
@@ -793,8 +998,11 @@ export async function extractTextFromPdf(
         const totalToOcr = pagesNeedingOcr.length;
         const ocrResults = new Map<number, string>();
         let nextIdx = 0;
+        const pageTimeout = options?.pageTimeoutMs || 25000;
 
-        const runWorkerQueue = async (worker: Worker) => {
+        const runWorkerQueue = async (initialWorker: Worker, workerIndex: number) => {
+          let activeWorker = initialWorker;
+
           while (nextIdx < pagesNeedingOcr.length) {
             const currentItem = pagesNeedingOcr[nextIdx++];
             const pageNum = currentItem.pageNumber;
@@ -811,13 +1019,20 @@ export async function extractTextFromPdf(
 
             try {
               const scale = calculateOcrScale(currentItem.pageObj, mode);
-              const canvas = await renderPageToCanvas(currentItem.pageObj, scale);
+              
+              // 1. Render page with a 12s safety timeout
+              const canvas = await withTimeout(
+                renderPageToCanvas(currentItem.pageObj, scale),
+                12000,
+                `Rendering page ${pageNum} to canvas`
+              );
+
               if (canvas) {
                 if (isCanvasBlankOrNoiseFree(canvas)) {
                   ocrResults.set(pageNum, `[Page ${pageNum} - Blank Page]`);
                 } else {
                   preprocessCanvasForOcr(canvas);
-                  const ret = await worker.recognize(
+                  const ocrPromise = activeWorker.recognize(
                     canvas,
                     {},
                     {
@@ -831,14 +1046,60 @@ export async function extractTextFromPdf(
                       osd: false
                     }
                   );
+
+                  // 2. Watchdog timeout per page (25 seconds) to prevent infinite loops
+                  const ret = await withTimeout(
+                    ocrPromise,
+                    pageTimeout,
+                    `OCR recognition on page ${pageNum}`
+                  );
+
                   const recognized = cleanOcrText(ret?.data?.text || '');
                   if (recognized.length > 5) {
                     ocrResults.set(pageNum, recognized);
                   }
                 }
               }
-            } catch (ocrErr) {
-              console.warn(`OCR error on page ${pageNum}:`, ocrErr);
+            } catch (ocrErr: any) {
+              const isTimeout = ocrErr?.message?.includes('TIMEOUT');
+              console.warn(`OCR error/timeout on page ${pageNum}:`, ocrErr);
+
+              if (isTimeout) {
+                ocrResults.set(
+                  pageNum,
+                  `[Page ${pageNum} - Scanned image / Complex graphics (OCR timed out after ${Math.round(pageTimeout / 1000)}s; skipped to keep document processing active)]`
+                );
+
+                if (onProgress) {
+                  onProgress({
+                    currentPage: pageNum,
+                    totalPages: numPages,
+                    stage: 'ocr',
+                    message: `⚠️ Page ${pageNum} timed out (complex scan); skipped to proceed with remaining pages...`,
+                    percent: 20 + Math.round((completedOcr / totalToOcr) * 75)
+                  });
+                }
+
+                // Force terminate hung worker to free resources and unblock WASM thread
+                try {
+                  await activeWorker.terminate();
+                } catch (termErr) {
+                  console.warn('Worker termination warning:', termErr);
+                }
+
+                // Spawn a clean replacement worker for subsequent pages
+                try {
+                  activeWorker = await createOptimizedWorker(workerIndex + 1);
+                  const poolIdx = ocrWorkerPool.indexOf(initialWorker);
+                  if (poolIdx >= 0) {
+                    ocrWorkerPool[poolIdx] = activeWorker;
+                  } else {
+                    ocrWorkerPool.push(activeWorker);
+                  }
+                } catch (spawnErr) {
+                  console.error('Failed to spawn replacement worker:', spawnErr);
+                }
+              }
             } finally {
               completedOcr++;
               if (onProgress) {
@@ -854,7 +1115,7 @@ export async function extractTextFromPdf(
           }
         };
 
-        await Promise.all(workers.map(w => runWorkerQueue(w)));
+        await Promise.all(workers.map((w, idx) => runWorkerQueue(w, idx)));
 
         // Merge OCR results back
         for (const p of pagesNeedingOcr) {

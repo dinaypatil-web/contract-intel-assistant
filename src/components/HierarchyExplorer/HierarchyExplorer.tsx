@@ -23,6 +23,7 @@ import {
   Check
 } from 'lucide-react';
 import { AddDocumentModal } from './AddDocumentModal';
+import { FormattedContractContent } from '../common/FormattedContractContent';
 
 interface HierarchyExplorerProps {
   project: Project;
@@ -565,10 +566,10 @@ export const HierarchyExplorer: React.FC<HierarchyExplorerProps> = ({
                       fontSize: '0.85rem',
                       lineHeight: 1.7,
                       color: 'var(--text-primary)',
-                      maxHeight: '320px',
+                      maxHeight: '420px',
                       overflowY: 'auto'
                     }}>
-                      {selectedClause.content}
+                      <FormattedContractContent text={selectedClause.content} />
                     </div>
 
                     {/* Interconnected Knowledge Graph */}
@@ -676,12 +677,11 @@ export const HierarchyExplorer: React.FC<HierarchyExplorerProps> = ({
                     lineHeight: 1.8,
                     color: 'var(--text-primary)',
                     minHeight: '340px',
-                    maxHeight: '460px',
+                    maxHeight: '520px',
                     overflowY: 'auto',
-                    whiteSpace: 'pre-wrap',
                     boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.2)'
                   }}>
-                    {activePageData.text}
+                    <FormattedContractContent text={activePageData.text} />
                   </div>
 
                   {/* Page Navigator Bottom Bar */}
@@ -780,11 +780,10 @@ export const HierarchyExplorer: React.FC<HierarchyExplorerProps> = ({
                     fontSize: '0.82rem',
                     lineHeight: 1.7,
                     color: 'var(--text-primary)',
-                    maxHeight: '480px',
-                    overflowY: 'auto',
-                    whiteSpace: 'pre-wrap'
+                    maxHeight: '540px',
+                    overflowY: 'auto'
                   }}>
-                    {selectedDoc?.rawText || 'No text extracted.'}
+                    <FormattedContractContent text={selectedDoc?.rawText || 'No text extracted.'} />
                   </div>
                 </div>
               )}

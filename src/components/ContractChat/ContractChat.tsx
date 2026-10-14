@@ -9,6 +9,7 @@ import {
   Lightbulb, 
   AlertCircle 
 } from 'lucide-react';
+import { FormattedContractContent } from '../common/FormattedContractContent';
 
 interface ContractChatProps {
   project: Project;
@@ -270,7 +271,7 @@ Based on the contract documents for **${project.name}**:
               lineHeight: 1.6,
               boxShadow: 'var(--shadow-sm)'
             }}>
-              <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
+              <FormattedContractContent text={msg.content} />
 
               {/* Citations Section */}
               {msg.citations && msg.citations.length > 0 && (

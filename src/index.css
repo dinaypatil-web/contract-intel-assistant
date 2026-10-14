@@ -849,3 +849,113 @@ body {
   white-space: pre-wrap;
   font-size: 1.05rem;
 }
+
+/* ==========================================================================
+   Extracted Contract Table Styles (Scanned & Digital Tables)
+   ========================================================================== */
+.table-responsive-container {
+  margin: 14px 0;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface-elevated);
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.table-meta-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: rgba(15, 23, 42, 0.65);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.table-meta-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.table-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.table-copy-btn:hover {
+  background: var(--accent-blue);
+  color: #ffffff;
+  border-color: var(--accent-blue);
+}
+
+.table-scroll-wrapper {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.contract-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  text-align: left;
+}
+
+.contract-data-table th {
+  background: rgba(30, 41, 59, 0.85);
+  color: var(--accent-blue);
+  font-weight: 700;
+  padding: 10px 14px;
+  border-bottom: 2px solid var(--accent-blue);
+  border-right: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.contract-data-table th:last-child {
+  border-right: none;
+}
+
+.contract-data-table td {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  border-right: 1px solid rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  line-height: 1.45;
+}
+
+.contract-data-table td:last-child {
+  border-right: none;
+}
+
+.contract-data-table tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.contract-data-table tbody tr:hover {
+  background: rgba(56, 189, 248, 0.06);
+}
+
+.contract-data-table .cell-numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-teal);
+}
+
+.contract-data-table .cell-text {
+  text-align: left;
+}
+
