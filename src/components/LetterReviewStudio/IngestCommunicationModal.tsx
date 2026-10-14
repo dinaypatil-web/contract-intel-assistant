@@ -52,7 +52,7 @@ export const IngestCommunicationModal: React.FC<IngestCommunicationModalProps> =
   } | null>(null);
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const [parseError, setParseError] = useState<string | null>(null);
-  const [ocrSpeedMode, setOcrSpeedMode] = useState<'fast' | 'balanced' | 'skip'>('fast');
+  const [ocrSpeedMode, setOcrSpeedMode] = useState<'fast' | 'balanced' | 'skip'>('balanced');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 

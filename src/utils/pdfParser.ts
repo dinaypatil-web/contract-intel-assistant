@@ -463,7 +463,6 @@ async function createOptimizedWorker(
   try {
     await worker.setParameters({
       tessedit_pageseg_mode: '3' as any,
-      tessedit_ocr_engine_mode: '1' as any,
       preserve_interword_spaces: '1',
       tessjs_create_hocr: '0',
       tessjs_create_tsv: '0',
@@ -547,36 +546,31 @@ export async function terminateOcrWorker() {
 
 /**
  * Dynamically computes an optimal rendering scale for a PDF page.
- * Bounding max dimension to ~1100-1350px preserves sharp 140-160 DPI text
- * while cutting pixel count and OCR processing time by 50% to 70%!
+ * Target resolution of ~180-220 DPI (height ~2000-2400px) ensures
+ * character x-height is 25-35px, which is the optimal range for Tesseract LSTM neural nets.
  */
 export function calculateOcrScale(page: any, mode: 'fast' | 'balanced' | 'quality' = 'balanced'): number {
-  if (mode === 'quality') return 2.0;
-
   try {
     const baseViewport = page.getViewport({ scale: 1.0 });
     const maxDim = Math.max(baseViewport.width, baseViewport.height);
-    if (!maxDim || maxDim <= 0) return mode === 'fast' ? 1.2 : 1.35;
+    if (!maxDim || maxDim <= 0) return 2.25;
 
-    // Target max dimensions: 1100px for fast mode, 1350px for balanced mode
-    const targetDim = mode === 'fast' ? 1100 : 1350;
+    // Minimum 180-220 DPI for reliable Tesseract LSTM text recognition
+    // A4 (842pt) scaled by 2.25x = ~1894px (~165-180 DPI)
+    const targetDim = mode === 'quality' ? 2600 : mode === 'fast' ? 1750 : 2200;
     const computedScale = targetDim / maxDim;
 
-    if (mode === 'fast') {
-      return Math.min(Math.max(computedScale, 1.0), 1.3);
-    } else {
-      return Math.min(Math.max(computedScale, 1.15), 1.55);
-    }
+    return Math.min(Math.max(computedScale, 1.8), 2.8);
   } catch {
-    return mode === 'fast' ? 1.2 : 1.35;
+    return 2.25;
   }
 }
 
 /**
  * Fast client-side Canvas 2D image preprocessing:
- * Converts RGBA to high-contrast monochrome/grayscale via TypedArray.
- * Suppresses paper grain/scanner shadows and deepens ink strokes,
- * allowing Tesseract's neural net to converge in fewer iterations.
+ * Converts RGBA to uniform grayscale while preserving anti-aliased font edges.
+ * Avoids destructive hard-thresholding which breaks thin letters, serifs, and table lines.
+ * Tesseract's internal Leptonica engine automatically applies local adaptive Otsu/Sauvola thresholding.
  */
 export function preprocessCanvasForOcr(canvas: HTMLCanvasElement): void {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -588,45 +582,57 @@ export function preprocessCanvasForOcr(canvas: HTMLCanvasElement): void {
     const len = d.length;
 
     for (let i = 0; i < len; i += 4) {
-      // Standard luminance weighting
-      const gray = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
-      // High background whitening (> 185) and ink darkening (< 130)
-      let v = gray;
-      if (gray > 185) {
-        v = 255;
-      } else if (gray < 130) {
-        v = Math.max(0, gray * 0.7);
-      }
-      d[i] = v;
-      d[i + 1] = v;
-      d[i + 2] = v;
+      const gray = Math.round(d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
+      d[i] = gray;
+      d[i + 1] = gray;
+      d[i + 2] = gray;
     }
     ctx.putImageData(imgData, 0, 0);
-  } catch (err) {
-    // Canvas context or security fallback
+  } catch {
+    // Canvas context fallback
   }
 }
 
 /**
- * Ultra-fast check to detect completely blank or uniform pages,
- * preventing Tesseract from spending 5-10s searching for text on empty pages.
+ * Checks if a page is truly blank by sampling the interior content area (avoiding margins).
  */
 export function isCanvasBlankOrNoiseFree(canvas: HTMLCanvasElement): boolean {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return false;
 
   try {
-    const sampleW = Math.min(canvas.width, 100);
-    const sampleH = Math.min(canvas.height, 100);
-    const imgData = ctx.getImageData(0, 0, sampleW, sampleH);
-    const d = imgData.data;
+    const width = canvas.width;
+    const height = canvas.height;
+    if (width <= 0 || height <= 0) return true;
+
+    // Sample across the entire page body (5% to 95% width and height to skip scan margins)
+    const step = 16;
     let nonWhitePixels = 0;
-    for (let i = 0; i < d.length; i += 4) {
-      if (d[i] < 210 || d[i + 1] < 210 || d[i + 2] < 210) {
-        nonWhitePixels++;
+    const minX = Math.floor(width * 0.05);
+    const maxX = Math.floor(width * 0.95);
+    const minY = Math.floor(height * 0.05);
+    const maxY = Math.floor(height * 0.95);
+
+    const imgData = ctx.getImageData(0, 0, width, height);
+    const d = imgData.data;
+
+    for (let y = minY; y < maxY; y += step) {
+      const rowOffset = y * width * 4;
+      for (let x = minX; x < maxX; x += step) {
+        const idx = rowOffset + x * 4;
+        // Check if pixel is darker than off-white page background (< 215 in any channel)
+        if (d[idx] < 215 || d[idx + 1] < 215 || d[idx + 2] < 215) {
+          nonWhitePixels++;
+          // Early exit: as soon as we detect even 20 text pixels, the page is definitely NOT blank
+          if (nonWhitePixels > 20) {
+            return false;
+          }
+        }
       }
     }
-    return nonWhitePixels < (d.length / 4) * 0.001;
+
+    // Only blank if virtually no text/content pixels were found across the whole page body
+    return nonWhitePixels <= 3;
   } catch {
     return false;
   }
@@ -643,46 +649,82 @@ export function reconstructTablesInText(text: string): string {
   const resultLines: string[] = [];
   let tableBuffer: string[] = [];
 
+  const isTableRow = (line: string): boolean => {
+    const trimmed = line.trim();
+    if (!trimmed) return false;
+
+    // 1. Explicit Markdown / pipe row: | col1 | col2 |
+    if (trimmed.startsWith('|') && trimmed.endsWith('|') && trimmed.split('|').length >= 3) {
+      return true;
+    }
+
+    // 2. Divider line like |---|---| or -------
+    if (/^[-=_—\s|+]{4,}$/.test(trimmed)) {
+      return true;
+    }
+
+    // 3. Clause headers should NEVER be treated as table lines
+    if (/^(?:Sub-Clause|Clause|PC|GC|Section|Article)\s+[0-9]/i.test(trimmed)) {
+      return false;
+    }
+
+    // 4. Tab-separated lines
+    if (trimmed.includes('\t')) {
+      const tabCols = trimmed.split('\t').map(c => c.trim()).filter(Boolean);
+      return tabCols.length >= 2;
+    }
+
+    // 5. Multi-column lines with 3+ distinct spaces separating cells
+    const cols = trimmed.split(/\s{3,}/).map(c => c.trim()).filter(Boolean);
+    if (cols.length >= 3) {
+      return true;
+    }
+
+    // 6. 2 columns: only if cells are short tabular entries (< 45 chars) and NOT narrative sentences
+    if (cols.length === 2) {
+      const isShort = cols[0].length < 45 && cols[1].length < 45;
+      const isNotSentence = !/[.!?]$/.test(cols[0]) && !/[a-z]{4,}\s+[a-z]{4,}\s+[a-z]{4,}\s+[a-z]{4,}/i.test(cols[0]);
+      return isShort && isNotSentence;
+    }
+
+    return false;
+  };
+
   const flushTableBuffer = () => {
     if (tableBuffer.length === 0) return;
 
     if (tableBuffer.length >= 2) {
-      // Parse each line into column cells
       const rowCells: string[][] = tableBuffer.map(line => {
         const trimmed = line.trim();
-        // If line is already a pipe-delimited table line
         if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
           return trimmed
             .slice(1, -1)
             .split('|')
             .map(c => c.trim());
         }
-        // Split by tabs or 2 or more consecutive spaces
-        return line.split(/\t+|\s{2,}/).map(c => c.trim()).filter(Boolean);
+        if (line.includes('\t')) {
+          return line.split('\t').map(c => c.trim()).filter(Boolean);
+        }
+        return line.split(/\s{3,}/).map(c => c.trim()).filter(Boolean);
       });
 
-      // Filter out lines that are pure dashes or dividers like '---' or '==='
       const nonDividerRows = rowCells.filter(
         r => r.length > 0 && !/^[-=_—\s]{3,}$/.test(r.join(''))
       );
 
-      // Verify that the majority of rows have 2 or more columns
       const multiColRows = nonDividerRows.filter(r => r.length >= 2);
       if (multiColRows.length >= 2 && multiColRows.length >= nonDividerRows.length * 0.6) {
-        // Find typical column count
         const colCounts = nonDividerRows.map(r => r.length);
-        const maxCols = Math.min(Math.max(...colCounts), 12); // Cap at 12 columns for sanity
+        const maxCols = Math.min(Math.max(...colCounts), 12);
 
         if (maxCols >= 2) {
           const mdTable: string[] = [];
 
-          // Header row (first non-divider row)
+          // Header
           const header = [...nonDividerRows[0]];
           while (header.length < maxCols) header.push('-');
           const sanitizedHeader = header.slice(0, maxCols).map(h => h.replace(/\|/g, '/').trim() || '-');
           mdTable.push(`| ${sanitizedHeader.join(' | ')} |`);
-
-          // Divider row
           mdTable.push(`| ${Array(maxCols).fill('---').join(' | ')} |`);
 
           // Data rows
@@ -702,32 +744,13 @@ export function reconstructTablesInText(text: string): string {
       }
     }
 
-    // Not a valid table; output original lines
     resultLines.push(...tableBuffer);
     tableBuffer = [];
   };
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const trimmed = line.trim();
-
-    if (!trimmed) {
-      flushTableBuffer();
-      resultLines.push(line);
-      continue;
-    }
-
-    // Check if line looks like part of a table:
-    const hasPipes = trimmed.startsWith('|') && trimmed.endsWith('|') && trimmed.split('|').length >= 3;
-    const multiColCols = line.split(/\t+|\s{2,}/).map(c => c.trim()).filter(Boolean);
-    const isDividerLine = /^[-=_—\s|+]{4,}$/.test(trimmed);
-
-    // Guard: ignore contract clause titles (e.g. "Sub-Clause 8.4 Extension of Time")
-    const isClauseHeader = /^(?:Sub-Clause|Clause|PC|GC|Section|Article)\s+[0-9]/i.test(trimmed);
-
-    const looksLikeTableRow = !isClauseHeader && (hasPipes || isDividerLine || multiColCols.length >= 2);
-
-    if (looksLikeTableRow) {
+    if (isTableRow(line)) {
       tableBuffer.push(line);
     } else {
       flushTableBuffer();
@@ -753,8 +776,8 @@ export function cleanOcrText(rawText: string): string {
     .replace(/\r/g, '\n')
     // Remove isolated single punctuation noise on their own lines
     .replace(/\n\s*[`~_=\-|\^§]{1,2}\s*\n/g, '\n')
-    // Rejoin words broken across line breaks with hyphens
-    .replace(/([a-zA-Z]{3,})-\n\s*([a-zA-Z]{3,})/g, '$1$2')
+    // Rejoin words broken across line breaks with hyphens (only when continuation is lowercase)
+    .replace(/([a-zA-Z]{2,})-\n\s*([a-z]{2,})/g, '$1$2')
     // Normalize excessive consecutive blank lines
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -775,7 +798,6 @@ function extractDigitalTextFromPage(textContent: any): string {
     x: number;
     y: number;
     width: number;
-    hasEOL?: boolean;
   }
 
   const items: TextItemPos[] = [];
@@ -784,46 +806,33 @@ function extractDigitalTextFromPage(textContent: any): string {
     const x = Array.isArray(item.transform) ? item.transform[4] : 0;
     const y = Array.isArray(item.transform) ? item.transform[5] : 0;
     const width = typeof item.width === 'number' ? item.width : item.str.length * 6;
-    items.push({
-      str: item.str,
-      x,
-      y,
-      width,
-      hasEOL: item.hasEOL
-    });
+    items.push({ str: item.str, x, y, width });
   }
 
-  // Stable sort by Y descending (PDF coordinates origin is bottom-left), then X ascending
-  items.sort((a, b) => {
-    if (Math.abs(b.y - a.y) > 3.5) {
-      return b.y - a.y;
-    }
-    return a.x - b.x;
-  });
+  // Sort strictly by Y descending (PDF coordinates origin is bottom)
+  items.sort((a, b) => b.y - a.y);
 
-  // Group lines within Y tolerance of ~3.5pt
+  // Group items into rows based on baseline Y
   const lines: TextItemPos[][] = [];
-  let currentLine: TextItemPos[] = [];
-  let currentY: number | null = null;
-
   for (const item of items) {
-    if (currentY === null || Math.abs(item.y - currentY) > 3.5) {
-      if (currentLine.length > 0) {
-        lines.push(currentLine);
+    let placed = false;
+    for (const line of lines) {
+      if (Math.abs(line[0].y - item.y) <= 4.0) {
+        line.push(item);
+        placed = true;
+        break;
       }
-      currentLine = [item];
-      currentY = item.y;
-    } else {
-      currentLine.push(item);
+    }
+    if (!placed) {
+      lines.push([item]);
     }
   }
-  if (currentLine.length > 0) {
-    lines.push(currentLine);
-  }
 
-  // Reconstruct lines with column gap detection
+  // Sort rows from top to bottom
+  lines.sort((a, b) => b[0].y - a[0].y);
+
+  // Reconstruct lines left to right with column gap detection
   const reconstructedLines: string[] = [];
-
   for (const row of lines) {
     row.sort((a, b) => a.x - b.x);
     let rowText = '';
@@ -833,9 +842,8 @@ function extractDigitalTextFromPage(textContent: any): string {
       const it = row[i];
       if (lastRight >= 0) {
         const gap = it.x - lastRight;
-        // Large gap (> 18pt) indicates a column boundary in a table
-        if (gap > 18) {
-          rowText += '    '; // 4 spaces indicates column separation
+        if (gap > 20) {
+          rowText += '    '; // column separation
         } else if (gap > 2) {
           rowText += ' ';
         }
@@ -863,8 +871,8 @@ async function renderPageToCanvas(page: any, scale: number = 1.35): Promise<HTML
   try {
     let viewport = page.getViewport({ scale });
     
-    // Safety clamp: Cap max dimensions to 1400px to prevent WASM/GPU memory explosion
-    const MAX_CANVAS_DIM = 1400;
+    // Safety clamp: Cap max dimensions to 2400px to allow high resolution while guarding memory
+    const MAX_CANVAS_DIM = 2400;
     const maxDim = Math.max(viewport.width, viewport.height);
     if (maxDim > MAX_CANVAS_DIM) {
       const rescale = MAX_CANVAS_DIM / maxDim;
@@ -965,7 +973,10 @@ export async function extractTextFromPdf(
           console.warn(`Text content extraction warning for page ${i}:`, tcErr);
         }
 
-        const needsOcr = mode !== 'skip' && pageString.trim().length < 25;
+        const trimmedLen = pageString.trim().length;
+        const wordCount = trimmedLen > 0 ? pageString.trim().split(/\s+/).filter(Boolean).length : 0;
+        // Scanned pages or pages with only watermarks/headers (<120 chars or <20 words) need OCR
+        const needsOcr = mode !== 'skip' && (trimmedLen < 120 || wordCount < 20);
         intermediatePages.push({
           pageNumber: i,
           pageObj: page,
@@ -1057,6 +1068,10 @@ export async function extractTextFromPdf(
                   const recognized = cleanOcrText(ret?.data?.text || '');
                   if (recognized.length > 5) {
                     ocrResults.set(pageNum, recognized);
+                  } else if (currentItem.digitalText && currentItem.digitalText.trim().length > 0) {
+                    ocrResults.set(pageNum, currentItem.digitalText.trim());
+                  } else {
+                    ocrResults.set(pageNum, `[Page ${pageNum} - Scanned image / No text recognized]`);
                   }
                 }
               }
@@ -1120,10 +1135,12 @@ export async function extractTextFromPdf(
         // Merge OCR results back
         for (const p of pagesNeedingOcr) {
           const res = ocrResults.get(p.pageNumber);
-          if (res && res.length > 5) {
+          if (res && res.length > 0) {
             p.digitalText = res;
-            p.isOcr = true;
-            ocrPagesCount++;
+            if (!res.startsWith('[Page') || res.includes('OCR')) {
+              p.isOcr = true;
+              ocrPagesCount++;
+            }
           }
         }
       }

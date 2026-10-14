@@ -90,7 +90,7 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
       if (isPdf) {
         const result = await extractTextFromPdf(file, file.name, (prog) => {
           setParsingStatus(prog.message);
-        }, { mode: 'fast' });
+        }, { mode: 'balanced' });
         pages = result.numPages || 1;
         extracted = result.text || '';
         pagesList = result.pages || [{ pageNumber: 1, text: extracted }];
